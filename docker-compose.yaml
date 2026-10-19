@@ -1,0 +1,103 @@
+# Кластер проекта AlfaHackathon.
+# Перед запуском создайте файл .env рядом с docker-compose.yaml (см. .env.example).
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - auth-gateway
+    restart: unless-stopped
+
+  auth-gateway:
+    build:
+      context: ../AuthGateway
+      dockerfile: Gateway/Dockerfile
+      args:
+        # Нужен на сборке, чтобы восстановить пакет AlfaHackaton.Auth из GitHub Packages
+        GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    image: alfahackathon/auth-gateway:latest
+    container_name: auth-gateway
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      # Должны совпадать с настройками сервиса, который выпускает токены
+      Jwt__Secret: ${JWT_SECRET:-dev-secret-0123456789abcdef-change-me}
+      Jwt__Issuer: ${JWT_ISSUER:-AlfaHackathon}
+      Jwt__Audience: ${JWT_AUDIENCE:-AlfaHackathon}
+      # Downstream-сервисы гейтвея
+      ReverseProxy__Clusters__user-service__Destinations__user-service__Address: ${SERVICES_ADDRESS:-http://user-service:8080}
+      ReverseProxy__Clusters__auth-service__Destinations__auth-service__Address: ${AUTH_SERVICE_ADDRESS:-http://auth-service:8080}
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  auth-service:
+    build:
+      context: ../AuthService
+      dockerfile: AuthService/Dockerfile
+      args:
+        # Нужен на сборке, чтобы восстановить пакет AlfaHackaton.Controllers из GitHub Packages
+        GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    image: alfahackathon/auth-service:latest
+    container_name: auth-service
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      # Совпадают с настройками гейтвея — он валидирует выпущенные токены
+      Jwt__Secret: ${JWT_SECRET:-dev-secret-0123456789abcdef-change-me}
+      Jwt__Issuer: ${JWT_ISSUER:-AlfaHackathon}
+      Jwt__Audience: ${JWT_AUDIENCE:-AlfaHackathon}
+      Services__UserService: ${USER_SERVICE_URL:-http://user-service:8080}
+      # Общий секрет для внутренних вызовов между сервисами
+      Internal__Secret: ${INTERNAL_SECRET:-internal-cluster-secret}
+      Swagger__Enabled: ${SWAGGER_ENABLED:-true}
+    ports:
+      - "8082:8080"
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-users}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      # 5432 занят на хосте, наружу торчим на 5433
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-users}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  user-service:
+    build:
+      context: ../UserService
+      dockerfile: UserService/Dockerfile
+      args:
+        # Нужен на сборке, чтобы восстановить пакеты AlfaHackaton.* из GitHub Packages
+        GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    image: alfahackathon/user-service:latest
+    container_name: user-service
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      # Общий секрет для внутренних вызовов между сервисами
+      Internal__Secret: ${INTERNAL_SECRET:-internal-cluster-secret}
+      Swagger__Enabled: ${SWAGGER_ENABLED:-true}
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-users};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
