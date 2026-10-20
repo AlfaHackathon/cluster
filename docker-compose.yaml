@@ -31,8 +31,47 @@ services:
       # Downstream-сервисы гейтвея
       ReverseProxy__Clusters__user-service__Destinations__user-service__Address: ${SERVICES_ADDRESS:-http://user-service:8080}
       ReverseProxy__Clusters__auth-service__Destinations__auth-service__Address: ${AUTH_SERVICE_ADDRESS:-http://auth-service:8080}
+      ReverseProxy__Clusters__agent-service__Destinations__agent-service__Address: ${AGENT_SERVICE_ADDRESS:-http://agent-service:3000}
     ports:
       - "8080:8080"
+    restart: unless-stopped
+
+  agent-service:
+    build:
+      context: ../AgentService
+    image: alfahackathon/agent-service:latest
+    container_name: agent-service
+    environment:
+      PORT: "3000"
+      DATABASE_URL: postgresql://agent:${AGENT_POSTGRES_PASSWORD:?Set AGENT_POSTGRES_PASSWORD}@agent-postgres:5432/agent_service
+      DATABASE_POOL_MAX: "10"
+      LLM_BASE_URL: ${LLM_BASE_URL:?Set LLM_BASE_URL}
+      LLM_API_KEY: ${LLM_API_KEY:?Set LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:?Set LLM_MODEL}
+      LLM_CONTEXT_WINDOW: ${LLM_CONTEXT_WINDOW:-128000}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-8192}
+      LLM_REASONING: ${LLM_REASONING:-false}
+    expose:
+      - "3000"
+    depends_on:
+      agent-postgres:
+        condition: service_healthy
+    stop_grace_period: 65s
+    restart: unless-stopped
+
+  agent-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: agent_service
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: ${AGENT_POSTGRES_PASSWORD:?Set AGENT_POSTGRES_PASSWORD}
+    volumes:
+      - agent-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d agent_service"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   auth-service:
@@ -101,3 +140,4 @@ services:
 
 volumes:
   postgres-data:
+  agent-postgres-data:
