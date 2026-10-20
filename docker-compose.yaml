@@ -20,6 +20,7 @@ services:
       args:
         # Нужен на сборке, чтобы восстановить пакет AlfaHackaton.Auth из GitHub Packages
         GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+        GITHUB_USERNAME: ${GITHUB_USERNAME:-AlfaHackathon}
     image: alfahackathon/auth-gateway:latest
     container_name: auth-gateway
     environment:

@@ -38,6 +38,7 @@ AgentService запускает миграции при старте и ждёт
 ## Переменные (.env)
 
 - `GITHUB_TOKEN` — PAT для NuGet GitHub Packages;
+- `GITHUB_USERNAME` — GitHub login владельца PAT для сборки AuthGateway;
 - `JWT_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE` — настройки токенов (одинаковы у гейтвея и auth-service);
 - `SERVICES_ADDRESS`, `AUTH_SERVICE_ADDRESS`, `AGENT_SERVICE_ADDRESS` — downstream гейтвея;
 - `POSTGRES_DB/USER/PASSWORD`;
@@ -105,8 +106,12 @@ SSE пришёл 15 порциями за ~7 секунд, то есть до з
 Docker compose проверен на корректность конфигурации; весь compose не запускался:
 локальный Docker Desktop не поднимает engine. Для проверки использованы нативные
 процессы и тот же nginx location (заменены только адреса, порт и Docker DNS).
-Пакет `AlfaHackaton.Auth` 1.3.0 собран из исходников организации в изолированный
-локальный NuGet feed: у доступного GitHub credential нет `read:packages`.
+Первоначальный прогон использовал локальную сборку пакета, но затем проверка
+повторена с опубликованным `AlfaHackaton.Auth` 1.3.0 из GitHub Packages.
+PAT classic устранил 403, restore выполнен в новый пустой кеш с отключённым
+HTTP-кешем; `.nupkg.metadata` подтверждает источник GitHub. На этом пакете прошли
+3 теста Gateway, Release build и оба сквозных теста; SSE пришёл 12 порциями
+(145 text deltas) за ~5 секунд. Локальный feed и артефакты пакета удалены.
 
 ## Тестовые пользователи (сид)
 
