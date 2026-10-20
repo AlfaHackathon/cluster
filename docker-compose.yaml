@@ -52,7 +52,7 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE:-AlfaHackathon}
       Services__UserService: ${USER_SERVICE_URL:-http://user-service:8080}
       # Общий секрет для внутренних вызовов между сервисами
-      Internal__Secret: ${INTERNAL_SECRET:-internal-cluster-secret}
+      Internal__Secret: ${INTERNAL_SECRET:?INTERNAL_SECRET не задан в .env}
       Swagger__Enabled: ${SWAGGER_ENABLED:-true}
     ports:
       - "8082:8080"
@@ -89,7 +89,7 @@ services:
     environment:
       ASPNETCORE_URLS: http://+:8080
       # Общий секрет для внутренних вызовов между сервисами
-      Internal__Secret: ${INTERNAL_SECRET:-internal-cluster-secret}
+      Internal__Secret: ${INTERNAL_SECRET:?INTERNAL_SECRET не задан в .env}
       Swagger__Enabled: ${SWAGGER_ENABLED:-true}
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-users};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
     depends_on:
@@ -99,5 +99,67 @@ services:
       - "8081:8080"
     restart: unless-stopped
 
+  # Графовая аналитика компаний (Python/FastAPI): платежи, физлица, группы.
+  # Swagger напрямую: http://localhost:8083/graph-service/docs (или через gateway: /graph-service/...)
+  graph-service:
+    build:
+      context: ../graph-service
+      dockerfile: Dockerfile
+    image: alfahackathon/graph-service:latest
+    container_name: graph-service
+    environment:
+      DATA_DIR: /data
+      CACHE_DIR: /cache
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET не задан в .env}
+      # Первый старт строит графы + PageRank/сообщества/node2vec (кэш в volume)
+      PRELOAD_METRICS: ${GRAPH_PRELOAD_METRICS:-true}
+      PRELOAD_COMMUNITIES: ${GRAPH_PRELOAD_COMMUNITIES:-true}
+      PRELOAD_EMBEDDINGS: ${GRAPH_PRELOAD_EMBEDDINGS:-true}
+    volumes:
+      # CSV лежат в корне репозитория
+      - ..:/data:ro
+      - graph-service-cache:/cache
+    ports:
+      - "8083:8000"
+    restart: unless-stopped
+
+  # MongoDB: инвайты company-service с самоочисткой по TTL (протухшие удаляются сами)
+  mongo:
+    image: mongo:7
+    container_name: mongo
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      # наружу — для локальной разработки без кластера
+      - "27018:27017"
+    restart: unless-stopped
+
+  company-service:
+    build:
+      # Контекст — корень репозитория: company-service ссылается на MongoContext (ProjectReference)
+      context: ..
+      dockerfile: company-service/CompanyService/Dockerfile
+      args:
+        GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    image: alfahackaton/company-service:latest
+    container_name: company-service
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      Internal__Secret: ${INTERNAL_SECRET:?INTERNAL_SECRET не задан в .env}
+      Swagger__Enabled: ${SWAGGER_ENABLED:-true}
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-users};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+      Mongo__ConnectionString: mongodb://mongo:27017
+      Mongo__Database: company-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_started
+    ports:
+      - "8085:8080"
+    restart: unless-stopped
+
 volumes:
   postgres-data:
+  graph-service-cache:
+  mongo-data:
