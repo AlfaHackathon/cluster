@@ -76,7 +76,7 @@ services:
   user-service:
     build:
       context: ../UserService
-      dockerfile: UserService/Dockerfile
+      dockerfile: Api/Dockerfile
       args:
         # Нужен на сборке, чтобы восстановить пакеты AlfaHackaton.* из GitHub Packages
         GITHUB_TOKEN: ${GITHUB_TOKEN:-}
