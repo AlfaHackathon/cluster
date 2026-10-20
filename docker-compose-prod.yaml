@@ -1,0 +1,129 @@
+# PROD-кластер проекта AlfaHackathon.
+# Наружу торчит только nginx:80 — все сервисы ходят друг к другу по
+# внутренней сети compose. Для локальной разработки используйте docker-compose-dev.yaml.
+# Перед запуском создайте файл .env рядом с compose-файлом (см. .env.example).
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      # Единственный вход в кластер
+      - "80:80"
+    depends_on:
+      - auth-gateway
+    restart: unless-stopped
+
+  auth-gateway:
+    build:
+      context: ../AuthGateway
+      dockerfile: Gateway/Dockerfile
+      args:
+        # Нужен на сборке, чтобы восстановить пакет AlfaHackaton.Auth из GitHub Packages
+        GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    image: alfahackathon/auth-gateway:latest
+    container_name: auth-gateway
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      # Должны совпадать с настройками сервиса, который выпускает токены
+      Jwt__Secret: ${JWT_SECRET:?JWT_SECRET не задан в .env}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER не задан в .env}
+      Jwt__Audience: ${JWT_AUDIENCE:?JWT_AUDIENCE не задан в .env}
+      # Downstream-сервисы гейтвея
+      ReverseProxy__Clusters__user-service__Destinations__user-service__Address: ${SERVICES_ADDRESS:-http://user-service:8080}
+      ReverseProxy__Clusters__auth-service__Destinations__auth-service__Address: ${AUTH_SERVICE_ADDRESS:-http://auth-service:8080}
+    restart: unless-stopped
+
+  auth-service:
+    build:
+      context: ../AuthService
+      dockerfile: AuthService/Dockerfile
+      args:
+        # Нужен на сборке, чтобы восстановить пакет AlfaHackaton.Controllers из GitHub Packages
+        GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    image: alfahackathon/auth-service:latest
+    container_name: auth-service
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      # Совпадают с настройками гейтвея — он валидирует выпущенные токены
+      Jwt__Secret: ${JWT_SECRET:?JWT_SECRET не задан в .env}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER не задан в .env}
+      Jwt__Audience: ${JWT_AUDIENCE:?JWT_AUDIENCE не задан в .env}
+      Services__UserService: ${USER_SERVICE_URL:-http://user-service:8080}
+      # Общий секрет для внутренних вызовов между сервисами
+      Internal__Secret: ${INTERNAL_SECRET:?INTERNAL_SECRET не задан в .env}
+      Swagger__Enabled: ${SWAGGER_ENABLED:-false}
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB не задан в .env}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER не задан в .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD не задан в .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-users}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  user-service:
+    build:
+      context: ../UserService
+      dockerfile: UserService/Dockerfile
+      args:
+        # Нужен на сборке, чтобы восстановить пакеты AlfaHackaton.* из GitHub Packages
+        GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    image: alfahackathon/user-service:latest
+    container_name: user-service
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      # Общий секрет для внутренних вызовов между сервисами
+      Internal__Secret: ${INTERNAL_SECRET:?INTERNAL_SECRET не задан в .env}
+      Swagger__Enabled: ${SWAGGER_ENABLED:-false}
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-users};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # MongoDB: инвайты company-service с самоочисткой по TTL (протухшие удаляются сами)
+  mongo:
+    image: mongo:7
+    container_name: mongo
+    volumes:
+      - mongo-data:/data/db
+    restart: unless-stopped
+
+  company-service:
+    build:
+      # Контекст — корень репозитория: company-service ссылается на MongoContext (ProjectReference)
+      context: ..
+      dockerfile: company-service/CompanyService/Dockerfile
+      args:
+        GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    image: alfahackaton/company-service:latest
+    container_name: company-service
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      Internal__Secret: ${INTERNAL_SECRET:?INTERNAL_SECRET не задан в .env}
+      Swagger__Enabled: ${SWAGGER_ENABLED:-false}
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-users};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+      Mongo__ConnectionString: mongodb://mongo:27017
+      Mongo__Database: company-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  mongo-data:
