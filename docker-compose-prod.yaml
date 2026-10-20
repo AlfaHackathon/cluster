@@ -103,9 +103,9 @@ services:
 
   company-service:
     build:
-      # Контекст — корень репозитория: company-service ссылается на MongoContext (ProjectReference)
+      # Контекст — корень репозитория: CompanyService (локальный ProjectReference MongoContext)
       context: ..
-      dockerfile: company-service/CompanyService/Dockerfile
+      dockerfile: CompanyService/Api/Dockerfile
       args:
         GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     image: alfahackaton/company-service:latest
