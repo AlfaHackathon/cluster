@@ -20,9 +20,8 @@ services:
     build:
       context: ../AuthGateway
       dockerfile: Gateway/Dockerfile
-      args:
-        # Нужен на сборке, чтобы восстановить пакет AlfaHackaton.Auth из GitHub Packages
-        GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      secrets:
+        - github_token
     image: alfahackathon/auth-gateway:latest
     container_name: auth-gateway
     environment:
@@ -34,6 +33,43 @@ services:
       # Downstream-сервисы гейтвея
       ReverseProxy__Clusters__user-service__Destinations__user-service__Address: ${SERVICES_ADDRESS:-http://user-service:8080}
       ReverseProxy__Clusters__auth-service__Destinations__auth-service__Address: ${AUTH_SERVICE_ADDRESS:-http://auth-service:8080}
+      ReverseProxy__Clusters__agent-service__Destinations__agent-service__Address: ${AGENT_SERVICE_ADDRESS:-http://agent-service:3000}
+    restart: unless-stopped
+
+  agent-service:
+    build:
+      context: ../AgentService
+    image: alfahackathon/agent-service:latest
+    container_name: agent-service
+    # Model credentials stay in the ignored AgentService/.env file.
+    env_file:
+      - path: ../AgentService/.env
+        required: false
+    environment:
+      PORT: "3000"
+      DATABASE_URL: postgresql://agent:${AGENT_POSTGRES_PASSWORD:?Set AGENT_POSTGRES_PASSWORD}@agent-postgres:5432/agent_service
+      DATABASE_POOL_MAX: "10"
+    expose:
+      - "3000"
+    depends_on:
+      agent-postgres:
+        condition: service_healthy
+    stop_grace_period: 65s
+    restart: unless-stopped
+
+  agent-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: agent_service
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: ${AGENT_POSTGRES_PASSWORD:?Set AGENT_POSTGRES_PASSWORD}
+    volumes:
+      - agent-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d agent_service"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   auth-service:
@@ -125,5 +161,10 @@ services:
     restart: unless-stopped
 
 volumes:
+  agent-postgres-data:
   postgres-data:
   mongo-data:
+
+secrets:
+  github_token:
+    file: ./.github-token
