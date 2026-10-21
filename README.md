@@ -70,3 +70,25 @@ gateway устанавливает X-User-Id/X-User-Role, AgentService пров�
 из конфигурации gateway и AGENT_PROXY_URL (по умолчанию http://localhost/agent-service).
 Проверка создаёт тестовые чаты и делает один реальный запрос к настроенной модели.
 Она проверяет идентификацию, владельца чата, SSE, replay, историю и abort.
+
+## Production domain and HTTPS
+
+Рабочий API: https://api.cheremha.ru, AgentService:
+https://api.cheremha.ru/agent-service. Production compose использует
+`nginx/nginx.prod.conf`, публикует 80/443 и перенаправляет HTTP на HTTPS (308).
+Dev compose продолжает использовать HTTP-конфигурацию `nginx/nginx.conf`.
+
+Сертификат Let's Encrypt и ACME webroot находятся в игнорируемых каталогах
+`letsencrypt/` и `acme-webroot/`. Приватные ключи не коммитятся.
+Перед первым запуском HTTPS-конфигурации на новом сервере выпустите сертификат
+через временный HTTP nginx с location `/.well-known/acme-challenge/`, направленным
+на `/var/www/certbot`, и certbot webroot. Веб-корень должен быть доступен на 80.
+
+Продление: `scripts/renew-certificates.sh`; тест: добавьте `--dry-run`.
+Systemd units в `deploy/api-certbot-renew.{service,timer}` устанавливаются в
+`/etc/systemd/system/`; таймер включается командой
+`systemctl enable --now api-certbot-renew.timer` после `systemctl daemon-reload`.
+Таймер проверяет необходимость продления дважды в сутки, затем перезагружает nginx.
+ExecStart рассчитан на `/root/alfa-tatari/cluster` — при переносе обновите путь.
+Для сквозной production-проверки задайте
+`AGENT_PROXY_URL=https://api.cheremha.ru/agent-service`.

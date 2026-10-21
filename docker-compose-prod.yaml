@@ -1,5 +1,5 @@
 # PROD-кластер проекта AlfaHackathon.
-# Наружу торчит только nginx:80 — все сервисы ходят друг к другу по
+# Наружу торчит только nginx:80/443 — все сервисы ходят друг к другу по
 # внутренней сети compose. Для локальной разработки используйте docker-compose-dev.yaml.
 # Перед запуском создайте файл .env рядом с compose-файлом (см. .env.example).
 
@@ -8,10 +8,13 @@ services:
     image: nginx:alpine
     container_name: nginx
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./letsencrypt:/etc/letsencrypt:ro
+      - ./acme-webroot:/var/www/certbot:ro
     ports:
       # Единственный вход в кластер
       - "80:80"
+      - "443:443"
     depends_on:
       - auth-gateway
     restart: unless-stopped
@@ -47,6 +50,7 @@ services:
         required: false
     environment:
       PORT: "3000"
+      PUBLIC_ORIGIN: ${AGENT_PUBLIC_ORIGIN:-https://api.cheremha.ru}
       DATABASE_URL: postgresql://agent:${AGENT_POSTGRES_PASSWORD:?Set AGENT_POSTGRES_PASSWORD}@agent-postgres:5432/agent_service
       DATABASE_POOL_MAX: "10"
     expose:
