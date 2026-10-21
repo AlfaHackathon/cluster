@@ -1,0 +1,9 @@
+[Unit]
+Description=Renew api.cheremha.ru TLS certificate and reload nginx
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/root/alfa-tatari/cluster/scripts/renew-certificates.sh
