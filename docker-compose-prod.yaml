@@ -52,6 +52,7 @@ services:
       Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER не задан в .env}
       Jwt__Audience: ${JWT_AUDIENCE:?JWT_AUDIENCE не задан в .env}
       Services__UserService: ${USER_SERVICE_URL:-http://user-service:8080}
+      Services__CompanyService: ${COMPANY_SERVICE_URL:-http://company-service:8080}
       # Общий секрет для внутренних вызовов между сервисами
       Internal__Secret: ${INTERNAL_SECRET:?INTERNAL_SECRET не задан в .env}
       Swagger__Enabled: ${SWAGGER_ENABLED:-false}
@@ -66,6 +67,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD не задан в .env}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # Скрипт создаёт изолированные БД (user-service / company-service) на пустом volume
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-users}"]
       interval: 5s
@@ -87,10 +90,56 @@ services:
       # Общий секрет для внутренних вызовов между сервисами
       Internal__Secret: ${INTERNAL_SECRET:?INTERNAL_SECRET не задан в .env}
       Swagger__Enabled: ${SWAGGER_ENABLED:-false}
-      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-users};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+      Services__CompanyService: ${COMPANY_SERVICE_URL:-http://company-service:8080}
+      # БД изолирована на сервис: у каждого своя база Postgres
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${USER_SERVICE_DB:-user-service};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
+
+  kafka:
+    image: apache/kafka:3.9.1
+    container_name: kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    restart: unless-stopped
+
+  web-news-parser-service:
+    build:
+      context: ../WebNewsParserService
+      dockerfile: Api/Dockerfile
+      args:
+        GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    image: alfahackathon/web-news-parser-service:latest
+    container_name: web-news-parser-service
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      # Общий секрет для внутренних вызовов между сервисами
+      Internal__Secret: ${INTERNAL_SECRET:?INTERNAL_SECRET не задан в .env}
+      Swagger__Enabled: ${SWAGGER_ENABLED:-false}
+      Mongo__ConnectionString: mongodb://mongo:27017
+      Mongo__Database: news-parser
+      Kafka__BootstrapServers: kafka:9092
+      Kafka__Topic: news-parser.news
+      Worker__TassPollIntervalSeconds: ${TASS_POLL_INTERVAL_SECONDS:-30}
+    depends_on:
+      mongo:
+        condition: service_started
+      kafka:
+        condition: service_started
     restart: unless-stopped
 
   # MongoDB: инвайты company-service с самоочисткой по TTL (протухшие удаляются сами)
@@ -114,9 +163,11 @@ services:
       ASPNETCORE_URLS: http://+:8080
       Internal__Secret: ${INTERNAL_SECRET:?INTERNAL_SECRET не задан в .env}
       Swagger__Enabled: ${SWAGGER_ENABLED:-false}
-      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-users};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+      Services__CompanyService: ${COMPANY_SERVICE_URL:-http://company-service:8080}
       Mongo__ConnectionString: mongodb://mongo:27017
       Mongo__Database: company-service
+      # БД изолирована на сервис: у каждого своя база Postgres
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${COMPANY_SERVICE_DB:-company-service};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
     depends_on:
       postgres:
         condition: service_healthy
@@ -127,3 +178,4 @@ services:
 volumes:
   postgres-data:
   mongo-data:
+  kafka-data:
