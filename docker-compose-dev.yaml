@@ -175,11 +175,11 @@ services:
       - "8085:8080"
     restart: unless-stopped
 
+secrets:
+  github_token:
+    file: ./.github-token
+
 volumes:
   agent-postgres-data:
   postgres-data:
   mongo-data:
-
-secrets:
-  github_token:
-    file: ./.github-token

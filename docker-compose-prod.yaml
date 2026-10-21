@@ -160,11 +160,11 @@ services:
         condition: service_started
     restart: unless-stopped
 
+secrets:
+  github_token:
+    file: ./.github-token
+
 volumes:
   agent-postgres-data:
   postgres-data:
   mongo-data:
-
-secrets:
-  github_token:
-    file: ./.github-token
