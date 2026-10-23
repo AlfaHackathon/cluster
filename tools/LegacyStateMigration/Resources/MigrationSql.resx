@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <data name="SourceTables" xml:space="preserve"><value>SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name</value></data>
+  <data name="SourceColumns" xml:space="preserve"><value>SELECT name FROM pragma_table_info($table) ORDER BY cid</value></data>
+  <data name="TargetColumns" xml:space="preserve"><value>SELECT column_name,data_type FROM information_schema.columns WHERE table_schema='public' AND table_name=@table ORDER BY ordinal_position</value></data>
+  <data name="Lock" xml:space="preserve"><value>SELECT pg_advisory_xact_lock(@key); SET CONSTRAINTS ALL DEFERRED;</value></data>
+  <data name="CheckConstraints" xml:space="preserve"><value>SET CONSTRAINTS ALL IMMEDIATE</value></data>
+  <data name="Count" xml:space="preserve"><value>SELECT COUNT(*) FROM {0}</value></data>
+  <data name="Read" xml:space="preserve"><value>SELECT {0} FROM {1}</value></data>
+  <data name="Insert" xml:space="preserve"><value>INSERT INTO {0} ({1}) VALUES ({2})</value></data>
+  <data name="Sequence" xml:space="preserve"><value>SELECT pg_get_serial_sequence(@table,@column)</value></data>
+  <data name="Maximum" xml:space="preserve"><value>SELECT COALESCE(MAX({0}),0) FROM {1}</value></data>
+  <data name="SetSequence" xml:space="preserve"><value>SELECT setval(@sequence::regclass,@value,@called)</value></data>
+  <data name="BackfillValidity" xml:space="preserve"><value>INSERT INTO question_validity_events(effect_id,material_id,kind,version_id,known_ticks)
+SELECT i.effect_id,i.material_id,'invalidated',i.version_id,COALESCE(t.known_ticks,0)
+FROM question_invalidations i LEFT JOIN question_invalidation_times t ON t.effect_id=i.effect_id AND t.material_id=i.material_id
+ON CONFLICT(effect_id,material_id,kind,version_id,known_ticks) DO NOTHING</value></data>
+</root>
