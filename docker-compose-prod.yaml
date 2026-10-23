@@ -55,6 +55,7 @@ services:
       PUBLIC_ORIGIN: ${AGENT_PUBLIC_ORIGIN:-https://api.cheremha.ru}
       DATABASE_URL: postgresql://agent:${AGENT_POSTGRES_PASSWORD:?Set AGENT_POSTGRES_PASSWORD}@agent-postgres:5432/agent_service
       DATABASE_POOL_MAX: "10"
+      COMPANY_SERVICE_URL: http://company-service:8080/company-service
     expose:
       - "3000"
     depends_on:
@@ -208,6 +209,7 @@ services:
       Services__CompanyService: ${COMPANY_SERVICE_URL:-http://company-service:8080}
       Mongo__ConnectionString: mongodb://mongo:27017
       Mongo__Database: company-service
+      ContextService__BaseUrl: ${CONTEXT_SERVICE_BASE_URL:-}
       # БД изолирована на сервис: у каждого своя база Postgres
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${COMPANY_SERVICE_DB:-company-service};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
     depends_on:

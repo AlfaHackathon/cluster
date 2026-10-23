@@ -30,7 +30,7 @@ docker compose -f docker-compose-dev.yaml up -d --build
 
 Репозитории `AuthGateway`, `AuthService`, `UserService`, `CompanyService`, `AgentService` должны
 лежать рядом с `cluster`: compose собирает их из соседних каталогов.
-Базовая ветка для изменений — `master`. Для production используйте `docker-compose-prod.yaml`.
+Изменения сначала направляются в `dev`, затем в `master`. Для production используйте `docker-compose-prod.yaml`.
 
 AgentService запускает миграции при старте и ждёт готовности собственной БД.
 Её данные хранятся в отдельном volume `agent-postgres-data`. Порт AgentService
@@ -40,6 +40,7 @@ AgentService запускает миграции при старте и ждёт
 
 - `GITHUB_TOKEN` — PAT для NuGet GitHub Packages;
 - `GITHUB_USERNAME` — GitHub login владельца PAT для сборки AuthGateway;
+- `CONTEXT_SERVICE_BASE_URL` — корень host ContextService для проверки источников CompanyService;
 - `JWT_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE` — настройки токенов (одинаковы у гейтвея и auth-service);
 - `SERVICES_ADDRESS`, `AUTH_SERVICE_ADDRESS`, `AGENT_SERVICE_ADDRESS` — downstream гейтвея;
 - `POSTGRES_DB/USER/PASSWORD`;
@@ -48,6 +49,14 @@ AgentService запускает миграции при старте и ждёт
 - `AGENT_POSTGRES_PASSWORD` — отдельный URL-safe пароль БД AgentService (латинские буквы/цифры/`-`/`_`);
 - `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` в `AgentService/.env` — endpoint, ключ и модель AgentService;
 - `LLM_CONTEXT_WINDOW`, `LLM_MAX_TOKENS`, `LLM_REASONING` — необязательные настройки модели.
+
+Новостной AgentService обращается к CompanyService через `COMPANY_SERVICE_URL` с префиксом
+`/company-service`. CompanyService хранит версии профилей, групп и grants; InsightService
+выполняет расчёты и проверку канонических результатов; ContextService хранит и ищет материалы.
+Для вызовов CompanyService из ContextService и InsightService задайте `CompanyService__BaseUrl`
+как корень host. Их адреса и `INTERNAL_SECRET` задаются в окружении соответствующих сервисов.
+Domain-операции CompanyService требуют доступного ContextService; его URL задаёт
+`CONTEXT_SERVICE_BASE_URL`. Эти зависимости относятся к новостному анализу.
 
 ## Чаты и SSE
 
