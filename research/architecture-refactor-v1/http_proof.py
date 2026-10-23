@@ -25,6 +25,7 @@ def compact(value):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--phase', choices=['initial', 'restart'], default='initial')
+    parser.add_argument('--error-envelope', choices=['legacy', 'package'], default='legacy')
     parser.add_argument('--out', required=True)
     args = parser.parse_args()
     out = Path(args.out).resolve()
@@ -141,7 +142,10 @@ def main():
             other = call('context', 'POST', '/context',
                     {**{k: v for k, v in job('v1').items() if k != 'bankProfileId'},
                      'companyId': OTHER}, allowed=(403,))
-            assert other['code'] == 'company_scope'
+            if args.error_envelope == 'package':
+                assert other == {'errorMessage': 'The news version belongs to a different company scope.'}
+            else:
+                assert other['code'] == 'company_scope'
             initial = call('agent', 'POST', '/news-analysis', job('v1', EARLY))
             assert len(initial['effects']) == 1
             assert value(initial['effects'][0]) == Decimal('15600')

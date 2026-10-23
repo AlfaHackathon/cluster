@@ -76,7 +76,7 @@ Only isolated synthetic PostgreSQL databases and controlled reasoning fixtures a
 no paid LLM, Kafka worker, production migration, credentials or historical data reports are
 part of the committed evidence.
 
-## Result error propagation follow-up
+## Initial Result error propagation (superseded below)
 
 ContextService and InsightService explicitly reference the real `AlfaHackaton.Result`
 1.0.0 package. Expected validation, business-rule and conflict failures now return
@@ -108,3 +108,44 @@ their exception paths; calculator arithmetic failures return errors at its bound
   Source-built package origin/hash checks passed; registry publication remains false.
   Import rollback, nonempty-target refusal, unchanged source files and post-import
   restart behavior all passed.
+
+## Direct package Error and Controllers 1.4.1
+
+The explicit follow-up replaces the initial local error adapter. Both services now
+construct `AlfaHackaton.Result.Errors.Error` directly and inherit package `BaseController`.
+`ApiError` and `ApiControllerBase` were deleted. Expected error bodies use the package's
+`{errorMessage}`; authentication, malformed HTTP/binding and infrastructure middleware
+retain their existing envelope. Calculation preview failure items use `errorMessage`.
+
+- Controllers 1.4.1 commit: `9c5051d4c9414653060fe482df6fe21083b8b0c1`, pushed on
+  [codex/http-status-code](https://github.com/AlfaHackathon/AlfaHackaton.Controllers/tree/codex/http-status-code).
+  Explicit `Error.HttpStatusCode` overrides the fallback `ErrorType` mapping. Success
+  and existing HTTP 400 content behavior remain unchanged. The null-error guard now
+  executes before dereferencing the error. The registry release was not performed.
+- Package contract tests: **11/11**. Before the fix, four explicit-status cases and
+  the null-error guard failed; fallback/success cases passed. Logs:
+  `.artifacts/controller-status-{red,green}.log`. The reusable test workflow receives
+  package-read credentials and blocks publication on a failing suite. Remote CI is
+  not claimed by these local test results. Test sources are excluded from the library;
+  the built archive contains only the package DLL and NuGet metadata.
+- Fresh source build: `.artifacts/org-packages/runs/20261023T200936Z-56bbd915/provenance.json`.
+  All six source pins and twelve per-service archive origin/hash checks passed.
+  Both service Release API/test builds passed without warnings. Source package builds
+  retain upstream warnings; service security overrides and NuGet audit remain enabled.
+- AgentService reads both package and legacy middleware envelopes. A shallow-write
+  HTTP 409 rechecks the actual `stateVersion` before requesting deeper analysis;
+  error prose is not used as a control signal. Six new fixtures failed before this
+  adaptation; the corrected focused suite passed **36/36** tests.
+- Final service suites: ContextService **27/27**, InsightService **56/56**, no skips.
+  HTTP fixtures verify the package envelope and explicit 404/409 statuses, and retain
+  the exact HTTP 200 literal-null claim and mixed calculation-preview behavior.
+- Separate read-only specification and standards reviews found no unresolved issues.
+  Their findings corrected the workflow feed setup and a stale test assertion.
+- Common quality gate: **PASS**, `.artifacts/direct-error-quality-gate.log`. Whitespace,
+  IDE0005/IDE0011, recommended analyzer builds, Biome, dependency boundaries and TypeScript
+  passed. AgentService **190/190** tests and built HTTP tests **4/4** passed.
+- Published three-process proof: **PASS**, all four stages,
+  `research/org-adoption-v2/runs/20261023T201823959616Z/result.json` (local, not committed).
+  Source-built origins/hashes, import rollback, nonempty-target refusal, unchanged
+  source files, fresh/restarted state and the new package error envelope passed.
+  Published-registry provenance remains false.

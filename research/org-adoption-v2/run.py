@@ -162,8 +162,11 @@ def main():
             command([sys.executable, '-B', str(HERE / 'question_proof.py'), '--phase', phase,
                      '--out', str(folder)], f'{stage}-question_proof.py.log')
             for script in ('http_proof.py', 'state_proof.py'):
-                command([sys.executable, '-B', str(HERE.parent / 'architecture-refactor-v1' / script),
-                         '--phase', phase, '--out', str(folder)], f'{stage}-{script}.log')
+                argv = [sys.executable, '-B', str(HERE.parent / 'architecture-refactor-v1' / script),
+                        '--phase', phase, '--out', str(folder)]
+                if script == 'http_proof.py':
+                    argv.extend(['--error-envelope', 'legacy' if label == 'baseline' else 'package'])
+                command(argv, f'{stage}-{script}.log')
             stages.append({'stage': stage, 'phase': phase, 'status': 'pass'})
             print('PASS ' + stage, flush=True)
         finally:

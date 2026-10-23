@@ -24,7 +24,7 @@ $sources = @(
     @{ Name = 'AlfaHackaton.Auth'; Version = '1.3.0'; Commit = 'f4eb6449c0d427f155bfdb85d205970c47dcb226' },
     @{ Name = 'AlfaHackaton.HttpClient'; Version = '1.1.1'; Commit = '8782062514b65f9b6cf4732ad78ae63966b19fcf' },
     @{ Name = 'AlfaHackaton.DapperContext'; Version = '1.2.0'; Commit = '593de96d8340418cab21db902a6e99e5be0a56ec' },
-    @{ Name = 'AlfaHackaton.Controllers'; Version = '1.4.0'; Commit = 'bf536d0c99a29ae9d0af73c406452407083262c6' }
+    @{ Name = 'AlfaHackaton.Controllers'; Version = '1.4.1'; Commit = '9c5051d4c9414653060fe482df6fe21083b8b0c1' }
 )
 
 function Invoke-Checked([string]$Executable, [string[]]$Arguments) {
