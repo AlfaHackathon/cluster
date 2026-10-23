@@ -1,5 +1,7 @@
-# Кластер проекта AlfaHackathon.
-# Перед запуском создайте файл .env рядом с docker-compose.yaml (см. .env.example).
+# DEV-кластер проекта AlfaHackathon.
+# Все порты сервисов торчат наружу — для удобства локальной разработки
+# (прямой доступ к swagger, базам, дебагу). В prod используйте docker-compose-prod.yaml.
+# Перед запуском создайте файл .env рядом с compose-файлом (см. .env.example).
 
 services:
   nginx:
@@ -18,9 +20,9 @@ services:
       context: ../AuthGateway
       dockerfile: Gateway/Dockerfile
       args:
-        # Нужен на сборке, чтобы восстановить пакет AlfaHackaton.Auth из GitHub Packages
-        GITHUB_TOKEN: ${GITHUB_TOKEN:-}
         GITHUB_USERNAME: ${GITHUB_USERNAME:-AlfaHackathon}
+      secrets:
+        - github_token
     image: alfahackathon/auth-gateway:latest
     container_name: auth-gateway
     environment:
@@ -34,6 +36,7 @@ services:
       ReverseProxy__Clusters__auth-service__Destinations__auth-service__Address: ${AUTH_SERVICE_ADDRESS:-http://auth-service:8080}
       ReverseProxy__Clusters__agent-service__Destinations__agent-service__Address: ${AGENT_SERVICE_ADDRESS:-http://agent-service:3000}
     ports:
+      # Прямой доступ к гейтвею в обход nginx
       - "8080:8080"
     restart: unless-stopped
 
@@ -42,16 +45,14 @@ services:
       context: ../AgentService
     image: alfahackathon/agent-service:latest
     container_name: agent-service
+    # Model credentials stay in the ignored AgentService/.env file.
+    env_file:
+      - path: ../AgentService/.env
+        required: false
     environment:
       PORT: "3000"
       DATABASE_URL: postgresql://agent:${AGENT_POSTGRES_PASSWORD:?Set AGENT_POSTGRES_PASSWORD}@agent-postgres:5432/agent_service
       DATABASE_POOL_MAX: "10"
-      LLM_BASE_URL: ${LLM_BASE_URL:?Set LLM_BASE_URL}
-      LLM_API_KEY: ${LLM_API_KEY:?Set LLM_API_KEY}
-      LLM_MODEL: ${LLM_MODEL:?Set LLM_MODEL}
-      LLM_CONTEXT_WINDOW: ${LLM_CONTEXT_WINDOW:-128000}
-      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-8192}
-      LLM_REASONING: ${LLM_REASONING:-false}
     expose:
       - "3000"
     depends_on:
@@ -92,7 +93,7 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE:-AlfaHackathon}
       Services__UserService: ${USER_SERVICE_URL:-http://user-service:8080}
       # Общий секрет для внутренних вызовов между сервисами
-      Internal__Secret: ${INTERNAL_SECRET:-internal-cluster-secret}
+      Internal__Secret: ${INTERNAL_SECRET:?INTERNAL_SECRET не задан в .env}
       Swagger__Enabled: ${SWAGGER_ENABLED:-true}
     ports:
       - "8082:8080"
@@ -108,7 +109,8 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
-      # 5432 занят на хосте, наружу торчим на 5433
+      # наружу — для подключения клиентов/IDE без кластера
+      # 5432 занят на хосте, торчим на 5433
       - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-users}"]
@@ -120,7 +122,7 @@ services:
   user-service:
     build:
       context: ../UserService
-      dockerfile: UserService/Dockerfile
+      dockerfile: Api/Dockerfile
       args:
         # Нужен на сборке, чтобы восстановить пакеты AlfaHackaton.* из GitHub Packages
         GITHUB_TOKEN: ${GITHUB_TOKEN:-}
@@ -129,7 +131,7 @@ services:
     environment:
       ASPNETCORE_URLS: http://+:8080
       # Общий секрет для внутренних вызовов между сервисами
-      Internal__Secret: ${INTERNAL_SECRET:-internal-cluster-secret}
+      Internal__Secret: ${INTERNAL_SECRET:?INTERNAL_SECRET не задан в .env}
       Swagger__Enabled: ${SWAGGER_ENABLED:-true}
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-users};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
     depends_on:
@@ -139,6 +141,47 @@ services:
       - "8081:8080"
     restart: unless-stopped
 
+  # MongoDB: инвайты company-service с самоочисткой по TTL (протухшие удаляются сами)
+  mongo:
+    image: mongo:7
+    container_name: mongo
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      # наружу — для локальной разработки без кластера
+      - "27018:27017"
+    restart: unless-stopped
+
+  company-service:
+    build:
+      # Контекст — корень репозитория: CompanyService (локальный ProjectReference MongoContext)
+      context: ../CompanyService
+      dockerfile: Api/Dockerfile
+      args:
+        GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    image: alfahackaton/company-service:latest
+    container_name: company-service
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      Internal__Secret: ${INTERNAL_SECRET:?INTERNAL_SECRET не задан в .env}
+      Swagger__Enabled: ${SWAGGER_ENABLED:-true}
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-users};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+      Mongo__ConnectionString: mongodb://mongo:27017
+      Mongo__Database: company-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_started
+    ports:
+      - "8085:8080"
+    restart: unless-stopped
+
+secrets:
+  github_token:
+    file: ./.github-token
+
 volumes:
-  postgres-data:
   agent-postgres-data:
+  postgres-data:
+  mongo-data:

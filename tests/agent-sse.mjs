@@ -3,7 +3,7 @@ import { createHmac, randomUUID } from 'node:crypto';
 import test from 'node:test';
 
 // This integration check uses the SDK installed by the sibling AgentService.
-const { createFlueClient } = await import('../../AgentService/node_modules/@flue/sdk/dist/index.mjs');
+const { createFlueClient } = await import(process.env.AGENT_SDK_MODULE ?? '../../AgentService/node_modules/@flue/sdk/dist/index.mjs');
 const base = (process.env.AGENT_PROXY_URL ?? 'http://localhost/agent-service').replace(/\/$/, '');
 const secret = process.env.JWT_SECRET;
 assert.ok(secret, 'Set JWT_SECRET to the same signing key as AuthGateway');

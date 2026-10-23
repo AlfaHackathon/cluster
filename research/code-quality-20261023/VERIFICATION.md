@@ -149,3 +149,26 @@ retain their existing envelope. Calculation preview failure items use `errorMess
   Source-built origins/hashes, import rollback, nonempty-target refusal, unchanged
   source files, fresh/restarted state and the new package error envelope passed.
   Published-registry provenance remains false.
+
+## Master PR merge readiness
+
+AuthGateway and cluster were synchronized with their current master branches before
+review. Resolutions retain master's Graph/Company routes, BuildKit package secret,
+dev/prod compose files, AgentService environment file, database volumes and configurable
+SDK test import. Gateway runtime files now match master; its PR retains documentation.
+Compose adds the non-secret GitHub username argument and keeps model settings in
+AgentService's ignored environment file. Example environment duplicates were removed.
+
+- AuthGateway Release build: zero warnings/errors; middleware tests **3/3** passed
+  against the explicitly pinned source-built organization package feed. Logs:
+  `.artifacts/master-pr-gateway-{restore,build,tests}.log`.
+- Shared quality gate: **PASS**, `.artifacts/master-pr-quality-gate.log`.
+  ContextService **27/27**, InsightService **56/56**, AgentService **190/190** and
+  built HTTP tests **4/4** passed. Formatting, analyzers, Biome, boundaries and
+  TypeScript passed; no tests were skipped.
+- Both compose files passed `docker compose config --no-env-resolution --quiet`;
+  gateway Host/SSE timeout/buffering and retained routes were checked. The SDK
+  integration test passed syntax validation. Containers and the paid-model SSE
+  scenario were not started by this merge check.
+- Independent specification and standards reviews found no remaining merge issues;
+  documentation was aligned with the retained CompanyService dependency and routes.
