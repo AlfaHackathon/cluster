@@ -8,12 +8,12 @@ $ErrorActionPreference = 'Stop'
 $workspace = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 if (!$ArtifactsRoot) { $ArtifactsRoot = Join-Path $workspace '.artifacts/org-packages' }
 $ArtifactsRoot = [IO.Path]::GetFullPath($ArtifactsRoot)
-$feed = Join-Path $ArtifactsRoot 'feed'
-$sourceRoot = Join-Path $ArtifactsRoot 'sources'
+$sourceRoot = Join-Path $ArtifactsRoot 'pinned-sources'
 $runId = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
 $runRoot = Join-Path $ArtifactsRoot "runs/$runId"
-$sourcePackages = Join-Path $runRoot 'source-packages'
-$configuration = Join-Path $ArtifactsRoot 'NuGet.source-built.config'
+$feed = Join-Path $runRoot 'feed'
+$sourcePackages = Join-Path $runRoot 'packages'
+$configuration = Join-Path $runRoot 'NuGet.source-built.config'
 $services = @('ContextService', 'InsightService')
 
 # These are actual public organization repositories and their unmodified project versions.
@@ -23,7 +23,7 @@ $sources = @(
     @{ Name = 'AlfaHackaton.Result'; Version = '1.0.0'; Commit = 'fc613a788ff2b6ea3bfeca5be6e560b2cb673a3f' },
     @{ Name = 'AlfaHackaton.Auth'; Version = '1.3.0'; Commit = 'f4eb6449c0d427f155bfdb85d205970c47dcb226' },
     @{ Name = 'AlfaHackaton.HttpClient'; Version = '1.1.1'; Commit = '8782062514b65f9b6cf4732ad78ae63966b19fcf' },
-    @{ Name = 'AlfaHackaton.DapperContext'; Version = '1.1.0'; Commit = 'd23a9a8d4e18680014a1ba5713ba45642e700a63' },
+    @{ Name = 'AlfaHackaton.DapperContext'; Version = '1.2.0'; Commit = '593de96d8340418cab21db902a6e99e5be0a56ec' },
     @{ Name = 'AlfaHackaton.Controllers'; Version = '1.4.0'; Commit = 'bf536d0c99a29ae9d0af73c406452407083262c6' }
 )
 
@@ -60,8 +60,9 @@ if ($RunTests -and (!$env:CONTEXT_TEST_POSTGRES -or !$env:INSIGHT_TEST_POSTGRES)
     throw 'Set CONTEXT_TEST_POSTGRES and INSIGHT_TEST_POSTGRES to an isolated synthetic PostgreSQL instance before -RunTests.'
 }
 
-New-Item -ItemType Directory -Force $ArtifactsRoot, $feed, $sourceRoot | Out-Null
+New-Item -ItemType Directory -Force $ArtifactsRoot, $sourceRoot | Out-Null
 New-Item -ItemType Directory -Path $runRoot | Out-Null
+New-Item -ItemType Directory -Path $feed | Out-Null
 $feedXml = [System.Security.SecurityElement]::Escape($feed)
 @"
 <?xml version="1.0" encoding="utf-8"?>
@@ -96,8 +97,17 @@ try {
     [Environment]::SetEnvironmentVariable('GIT_ASKPASS', $null, 'Process')
     Write-Output 'Building real NuGet packages from pinned public organization source; no registry token is required.'
     foreach ($source in $sources) {
-        $checkout = Join-Path $sourceRoot $source.Name
+        $checkout = Join-Path $sourceRoot "$($source.Name)/$($source.Commit)"
         $url = "https://github.com/AlfaHackathon/$($source.Name).git"
+        # Reuse a verified checkout from the older flat layout when its pin still matches.
+        $legacyCheckout = Join-Path $ArtifactsRoot "sources/$($source.Name)"
+        if (!(Test-Path -LiteralPath $checkout) -and (Test-Path -LiteralPath $legacyCheckout)) {
+            $legacyHead = (& git -C $legacyCheckout rev-parse HEAD).Trim()
+            if ($LASTEXITCODE -eq 0 -and $legacyHead -eq $source.Commit) {
+                Assert-UnmodifiedSource $legacyCheckout $source.Commit
+                $checkout = $legacyCheckout
+            }
+        }
         if (!(Test-Path -LiteralPath $checkout)) {
             Invoke-PublicGit @('clone', '--no-checkout', $url, $checkout)
             Invoke-PublicGit @('-C', $checkout, 'checkout', '--detach', $source.Commit)
@@ -128,7 +138,9 @@ try {
     }
 
     foreach ($service in $services) {
-        $packageCache = Join-Path $runRoot "packages/$service"
+        # Each run owns one fresh cache. Reusing it across the two services avoids
+        # downloading the same dependency graph three times; hashes/origins are still checked per service.
+        $packageCache = $sourcePackages
         $apiProject = Join-Path $workspace "$service/Api/$service.Api.csproj"
         $testProject = Join-Path $workspace "$service/Tests/$service.Tests.csproj"
         foreach ($project in @($apiProject, $testProject)) {
@@ -147,8 +159,10 @@ try {
             if ($hash -ne $package.sha256) { throw "Package content mismatch for $service/$packageId" }
             $consumedPackages += [ordered]@{ service = $service; package = $package.package; version = $package.version; sha256 = $hash; source = $feed }
         }
-        Invoke-Checked dotnet @('build', $apiProject, '-c', 'Release', '--no-restore', "-p:RestorePackagesPath=$packageCache")
-        Invoke-Checked dotnet @('build', $testProject, '-c', 'Release', '--no-restore', "-p:RestorePackagesPath=$packageCache")
+        Invoke-Checked dotnet @('build', $apiProject, '-c', 'Release', '--no-restore', "-p:RestorePackagesPath=$packageCache",
+            '-m:1', '-nr:false', '-p:UseSharedCompilation=false')
+        Invoke-Checked dotnet @('build', $testProject, '-c', 'Release', '--no-restore', "-p:RestorePackagesPath=$packageCache",
+            '-m:1', '-nr:false', '-p:UseSharedCompilation=false')
         if ($RunTests) {
             Invoke-Checked dotnet @('test', $testProject, '-c', 'Release', '--no-restore', '--no-build', "-p:RestorePackagesPath=$packageCache")
         }

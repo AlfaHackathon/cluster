@@ -16,9 +16,10 @@ with credential helpers disabled, checks their exact pinned commits and clean so
 and packs their actual project files in Release. It then restores and builds ContextService,
 InsightService and both test projects using those real packages.
 
-Output is under `.artifacts/org-packages`: `feed/` contains the source-built `.nupkg` files,
-`NuGet.source-built.config` exclusively maps `AlfaHackaton.*` to that feed, and `runs/<id>/`
-contains dedicated fresh package caches and provenance. `latest.json` is written only after
+Output is under `.artifacts/org-packages/runs/<id>`: `feed/` contains the source-built `.nupkg` files,
+`NuGet.source-built.config` exclusively maps `AlfaHackaton.*` to that run's feed, and `packages/`
+contains one fresh cache shared by source builds and both service restores. Source checkouts are keyed by repository and commit,
+so updating a pin never overwrites an earlier checkout or feed. `.artifacts/org-packages/latest.json` is written only after
 successful verification. Provenance records public repository URLs, exact commits, source
 integrity checks, package SHA256 and the hashes actually consumed by each service.
 
@@ -26,7 +27,7 @@ The result is honestly labelled **source-built**, not a downloaded registry arti
 The script never contacts the GitHub Packages registry, reads a token, edits organization
 source files, silently switches feeds, or changes service `NuGet.config` files. Ordinary
 third-party dependencies come from NuGet.org. Reruns reuse only verified unchanged source
-checkouts and rebuild the six selected packages; every run gets fresh caches. Unexpected
+checkouts and rebuild the six selected packages; every run gets a fresh cache. Unexpected
 source changes or packages stop the script without deleting user files.
 
 To run the real PostgreSQL suites as well, first provide an isolated synthetic PostgreSQL
@@ -47,12 +48,35 @@ configs continue to select GitHub Packages:
 
 ```powershell
 $build = Get-Content .artifacts/org-packages/latest.json -Raw | ConvertFrom-Json
-dotnet restore ContextService/Api/ContextService.Api.csproj --configfile $build.config --packages "$($build.runRoot)/packages/ContextService" --no-http-cache --force
+dotnet restore ContextService/Api/ContextService.Api.csproj --configfile $build.config --packages "$($build.runRoot)/packages" --no-http-cache --force
 ```
 
 Use `--no-restore` and the same `RestorePackagesPath` for subsequent build/test/publish
 commands to preserve the verified package origin. Source package builds can report upstream
 warnings; service projects explicitly pin patched Pkcs/Xml 10.0.13, and audit remains enabled.
+
+## Service quality gate
+
+After the explicit package restore/build above:
+
+```powershell
+$env:CONTEXT_TEST_POSTGRES = 'Host=127.0.0.1;Port=55441;Database=postgres;Username=postgres;Pooling=false'
+$env:INSIGHT_TEST_POSTGRES = $env:CONTEXT_TEST_POSTGRES
+.\cluster\tools\Test-ServiceQuality.ps1 -NoRestore
+```
+
+The gate runs C# whitespace and brace/unused-import checks, Release builds with
+`latest-recommended` .NET analyzers and warnings as errors, both PostgreSQL suites,
+Biome, the AgentService dependency boundary guard, TypeScript, unit/component tests
+and the built HTTP tests. `-SkipTests` explicitly selects static checks only.
+Without `-NoRestore`, `-NuGetConfig <path>` can explicitly select a source-built feed;
+otherwise each repository's configured package sources apply. Failures stop the gate.
+
+The `.editorconfig` files enforce braces, expanded statements/blocks, sorted imports
+and consistent whitespace. IDE0005 is checked explicitly by `dotnet format style`:
+the SDK requires XML documentation generation to enforce it during compilation.
+The remaining compiler and recommended analyzer diagnostics are build errors.
+This gate does not run paid models or start Kafka/LLM workers.
 
 ## Download the published GitHub Packages binaries
 

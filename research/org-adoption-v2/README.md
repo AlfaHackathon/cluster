@@ -29,7 +29,8 @@ CREATE DATABASE. Для другого порта есть `--postgres-port`. Pr
 После `cluster/tools/Build-OrganizationPackages.ps1` укажите напечатанные им config и cache:
 
 ```powershell
-python cluster/research/org-adoption-v2/run.py --nuget-config <generated-config> --packages <service-cache>
+$build = Get-Content .artifacts/org-packages/latest.json -Raw | ConvertFrom-Json
+python cluster/research/org-adoption-v2/run.py --nuget-config $build.config --packages "$($build.runRoot)/packages" --package-manifest .artifacts/org-packages/latest.json
 ```
 
 Без этих параметров restore использует штатные NuGet.config сервисов. Для старого этапа

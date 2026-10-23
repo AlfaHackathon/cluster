@@ -33,6 +33,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--nuget-config', type=Path)
     parser.add_argument('--packages', type=Path, help='Dedicated package cache produced by organization source build')
+    parser.add_argument('--package-manifest', type=Path, help='Verified source-build provenance.json or latest.json')
     parser.add_argument('--postgres-port', type=int, default=55441)
     args = parser.parse_args()
     run = HERE / 'runs' / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
@@ -70,6 +71,8 @@ def main():
 
     def package_provenance():
         found = []
+        manifest = json.loads(args.package_manifest.read_text(encoding='utf-8-sig')) if args.package_manifest else None
+        expected = {f"{p['package']}/{p['version']}".lower(): p for p in manifest['packages']} if manifest else {}
         for service in SERVICES:
             assets = json.loads((ROOT / service / 'Api/obj/project.assets.json').read_text(encoding='utf-8-sig'))
             for package in assets['libraries']:
@@ -79,8 +82,19 @@ def main():
                                  for folder in assets['packageFolders']
                                  if (Path(folder) / package.lower() / '.nupkg.metadata').is_file()), None)
                 origin = json.loads(metadata.read_text(encoding='utf-8-sig')).get('source') if metadata else None
-                found.append({'service': service, 'package': package,
-                              'github_packages': origin == 'https://nuget.pkg.github.com/AlfaHackathon/index.json'})
+                registry = origin == 'https://nuget.pkg.github.com/AlfaHackathon/index.json'
+                pinned = expected.get(package.lower())
+                archive = metadata.parent / (package.replace('/', '.').lower() + '.nupkg') if metadata else None
+                digest = hashlib.sha256(archive.read_bytes()).hexdigest() if archive and archive.is_file() else None
+                source_built = bool(pinned and origin and
+                                    os.path.normcase(os.path.abspath(origin)) == os.path.normcase(os.path.abspath(manifest['feed']))
+                                    and digest == pinned['sha256'])
+                found.append({'service': service, 'package': package, 'source': origin, 'sha256': digest,
+                              'github_packages': registry, 'source_built': source_built,
+                              'verified': source_built if manifest else registry})
+            if manifest:
+                actual = {p['package'].lower() for p in found if p['service'] == service}
+                assert actual == set(expected), f'Organization package set differs from manifest: {service}'
         return found
 
     def psql(sql, log, database='postgres'):
@@ -162,6 +176,8 @@ def main():
         publish('candidate', ROOT)
         report['packages'] = package_provenance()
         report['published_package_origin_verified'] = bool(report['packages']) and all(p['github_packages'] for p in report['packages'])
+        report['source_built_package_origin_and_hash_verified'] = bool(report['packages']) and all(p['source_built'] for p in report['packages'])
+        assert report['packages'] and all(p['verified'] for p in report['packages']), 'Package origin/hash verification failed'
         publish('baseline', ROOT / '.scratch/org-adoption-baseline')
         command(['dotnet', 'publish', str(ROOT / 'cluster/tools/LegacyStateMigration'), '-c', 'Release',
                  '-o', str(run / 'published/migration'), '--nologo'], 'publish-migration.log')
