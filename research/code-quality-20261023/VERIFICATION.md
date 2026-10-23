@@ -75,3 +75,36 @@ recipient fix. Those reviews are static evidence, not a substitute for the runti
 Only isolated synthetic PostgreSQL databases and controlled reasoning fixtures are used;
 no paid LLM, Kafka worker, production migration, credentials or historical data reports are
 part of the committed evidence.
+
+## Result error propagation follow-up
+
+ContextService and InsightService explicitly reference the real `AlfaHackaton.Result`
+1.0.0 package. Expected validation, business-rule and conflict failures now return
+`Result<T>` or `Result` with `return new(error)`. `ApiException` and its middleware
+catch blocks were removed. Callers propagate errors before reading content; early
+transaction returns dispose without commit and preserve atomic rollback.
+
+`ApiError` extends the package's `Error` with the existing machine code and status.
+The local controller adapter retains `{code,message}` and HTTP 400/403/404/409/422/5xx;
+successful responses still use organization `BaseController.OkOrProblem`. The package
+sources were not changed. Infrastructure exceptions and caller cancellation retain
+their exception paths; calculator arithmetic failures return errors at its boundary.
+
+- Common quality gate: **PASS**, `.artifacts/result-quality-gate.log`.
+  ContextService **27/27**, InsightService **56/56**, AgentService **184/184** and
+  built HTTP tests **4/4** passed with no skips. Both C# builds had zero warnings/errors.
+- New HTTP fixtures assert the exact `400 / invalid_model_explanation` envelope and
+  mixed successful/failed calculation preview rows. Existing persistence fixtures
+  cover returned conflicts, whole-batch rollback, idempotent receipts, cursor CAS,
+  cancellation, redirect refusal and the HTTP 200 literal-null job claim.
+- Separate read-only specification and standards reviews found no blocking issues.
+  Follow-up checks handle any package `Error` in the projection worker and calculation
+  preview, including an error not created as `ApiError`.
+- Final C# formatting/style checks, warning-free Release builds and PostgreSQL suites
+  passed again after the last readability edits; logs are
+  `.artifacts/result-{ContextService,InsightService}-final-{build,tests}.log`.
+- Published three-process proof: **PASS**, all four stages,
+  `research/org-adoption-v2/runs/20261023T195824122056Z/result.json` (local, not committed).
+  Source-built package origin/hash checks passed; registry publication remains false.
+  Import rollback, nonempty-target refusal, unchanged source files and post-import
+  restart behavior all passed.
