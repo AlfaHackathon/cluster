@@ -28,7 +28,8 @@ cp ../AgentService/.env.example ../AgentService/.env   # настройки LLM 
 docker compose -f docker-compose-dev.yaml up -d --build
 ```
 
-Репозитории `AuthGateway`, `AuthService`, `UserService`, `CompanyService`, `AgentService` должны
+Репозитории `AuthGateway`, `AuthService`, `UserService`, `CompanyService`, `AgentService`,
+`WebNewsParserService`, `ContextService`, `InsightService` должны
 лежать рядом с `cluster`: compose собирает их из соседних каталогов.
 Изменения сначала направляются в `dev`, затем в `master`. Для production используйте `docker-compose-prod.yaml`.
 
@@ -40,7 +41,7 @@ AgentService запускает миграции при старте и ждёт
 
 - `GITHUB_TOKEN` — PAT для NuGet GitHub Packages;
 - `GITHUB_USERNAME` — GitHub login владельца PAT для сборки AuthGateway;
-- `CONTEXT_SERVICE_BASE_URL` — корень host ContextService для проверки источников CompanyService;
+- `CONTEXT_MODEL_DIRECTORY` — существующий каталог ONNX-моделей для локального CPU inference (см. ниже);
 - `JWT_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE` — настройки токенов (одинаковы у гейтвея и auth-service);
 - `SERVICES_ADDRESS`, `AUTH_SERVICE_ADDRESS`, `AGENT_SERVICE_ADDRESS` — downstream гейтвея;
 - `POSTGRES_DB/USER/PASSWORD`;
@@ -54,9 +55,55 @@ AgentService запускает миграции при старте и ждёт
 `/company-service`. CompanyService хранит версии профилей, групп и grants; InsightService
 выполняет расчёты и проверку канонических результатов; ContextService хранит и ищет материалы.
 Для вызовов CompanyService из ContextService и InsightService задайте `CompanyService__BaseUrl`
-как корень host. Их адреса и `INTERNAL_SECRET` задаются в окружении соответствующих сервисов.
-Domain-операции CompanyService требуют доступного ContextService; его URL задаёт
-`CONTEXT_SERVICE_BASE_URL`. Эти зависимости относятся к новостному анализу.
+как корень host. Compose задаёт эти адреса и общий `INTERNAL_SECRET` автоматически.
+AgentService получает URL с префиксами `/company-service`, `/context-service`, `/insight-service`
+и `/news-parser-service`, включает Kafka consumer для `news-parser.news` на `kafka:9092`.
+
+## ContextService и InsightService
+
+Оба compose-файла собирают .NET 10 API из соседних репозиториев (`Api/Dockerfile`).
+Для NuGet restore используется только существующий BuildKit secret `.github-token`;
+он не передаётся аргументом сборки. API выполняют миграции перед открытием `/health`.
+
+`context-service` и `insight-service` используют отдельные PostgreSQL-базы в существующем
+`postgres-data`; имена задают `CONTEXT_SERVICE_DB` и `INSIGHT_SERVICE_DB`. Одноразовый
+`service-databases` создаёт только отсутствующие базы, включая случай уже заполненного
+volume. Он не удаляет и не очищает данные. Скрипт также используется при первом старте PostgreSQL.
+Qdrant хранит индекс в отдельном `qdrant-data`; Kafka, Mongo и Agent сохраняют прежние volumes.
+
+До запуска задайте `CONTEXT_MODEL_DIRECTORY` абсолютным путём к существующим весам:
+
+```text
+<CONTEXT_MODEL_DIRECTORY>/
+  e5_small/model.onnx
+  e5_small/tokenizer.json
+  mmarco_reranker/model.onnx
+  mmarco_reranker/tokenizer.json
+```
+
+Укажите совместимые ONNX-экспорты multilingual-e5-small (384 измерения) и mmarco-reranker.
+Каталог должен читаться UID 1654; он монтируется read-only, отсутствующий путь не создаётся.
+Compose не скачивает веса. Укажите все дополнительные файлы ONNX external data рядом с моделью.
+`context-inference` разделяет сетевое пространство Context API: исходный Python server
+слушает только `127.0.0.1:5183`, поэтому порт не публикуется и не требует изменения сервера.
+Context использует `/v1`, E5-префиксы `query: ` / `passage: ` и фоновый Qdrant sync.
+Readiness inference выполняет реальный embedding и rerank; `/health` Python-сервера
+сам по себе не подтверждает наличие или совместимость весов.
+
+Agent ждёт готовности Kafka, обоих API и inference. Новые внутренние сервисы и Qdrant
+не публикуют порты на хост. API health подтверждает старт после миграций;
+сквозной результат news → company insight нужно проверять отдельно через HTTP и Kafka.
+
+```bash
+docker compose -f docker-compose-prod.yaml config --quiet
+docker compose -f docker-compose-prod.yaml build context-service insight-service context-inference
+docker compose -f docker-compose-prod.yaml up -d --wait
+```
+
+Для production нужны существующие `.github-token`, `INTERNAL_SECRET`, JWT-настройки,
+`POSTGRES_DB/USER/PASSWORD`, `AGENT_POSTGRES_PASSWORD`, доступные ONNX-веса и
+`LLM_BASE_URL/LLM_API_KEY/LLM_MODEL` в `AgentService/.env`. Значения секретов не выводите
+через `docker compose config` без `--quiet`.
 
 ## Чаты и SSE
 
@@ -67,7 +114,7 @@ Domain-операции CompanyService требуют доступного Conte
 
 В nginx для `/agent-service/` отключены буферизация, кеш и gzip; URI, query string
 и внешний Host сохраняются. YARP также отключает буферизацию и допускает час
-без активности. Текущая конфигурация nginx обслуживает HTTP на порту 80.
+без активности. Dev nginx обслуживает HTTP на порту 80; production — HTTPS на `api.cheremha.ru`.
 
 Пример подключения сайта с `@flue/sdk@2.3.0` после создания чата:
 

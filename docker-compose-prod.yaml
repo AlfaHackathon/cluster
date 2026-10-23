@@ -56,10 +56,26 @@ services:
       DATABASE_URL: postgresql://agent:${AGENT_POSTGRES_PASSWORD:?Set AGENT_POSTGRES_PASSWORD}@agent-postgres:5432/agent_service
       DATABASE_POOL_MAX: "10"
       COMPANY_SERVICE_URL: http://company-service:8080/company-service
+      CONTEXT_SERVICE_URL: http://context-service:8080/context-service
+      INSIGHT_SERVICE_URL: http://insight-service:8080/insight-service
+      NEWS_SERVICE_URL: http://web-news-parser-service:8080/news-parser-service
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?Set INTERNAL_SECRET}
+      NEWS_KAFKA_ENABLED: "true"
+      KAFKA_BROKERS: kafka:9092
+      NEWS_KAFKA_TOPIC: news-parser.news
+      NEWS_KAFKA_GROUP_ID: agent-service-news-v1
+      NEWS_KAFKA_FROM_BEGINNING: "true"
+      KAFKA_SSL: "false"
     expose:
       - "3000"
     depends_on:
       agent-postgres:
+        condition: service_healthy
+      context-inference:
+        condition: service_healthy
+      insight-service:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     stop_grace_period: 65s
     restart: unless-stopped
@@ -107,13 +123,17 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB не задан в .env}
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER не задан в .env}
+      USER_SERVICE_DB: ${USER_SERVICE_DB:-user-service}
+      COMPANY_SERVICE_DB: ${COMPANY_SERVICE_DB:-company-service}
+      CONTEXT_SERVICE_DB: ${CONTEXT_SERVICE_DB:-context-service}
+      INSIGHT_SERVICE_DB: ${INSIGHT_SERVICE_DB:-insight-service}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD не задан в .env}
     volumes:
       - postgres-data:/var/lib/postgresql/data
       # Скрипт создаёт изолированные БД (user-service / company-service) на пустом volume
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-users}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-users}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -158,6 +178,12 @@ services:
       KAFKA_DEFAULT_REPLICATION_FACTOR: 1
     volumes:
       - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "kafka:9092"]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 10
     restart: unless-stopped
 
   web-news-parser-service:
@@ -209,13 +235,128 @@ services:
       Services__CompanyService: ${COMPANY_SERVICE_URL:-http://company-service:8080}
       Mongo__ConnectionString: mongodb://mongo:27017
       Mongo__Database: company-service
-      ContextService__BaseUrl: ${CONTEXT_SERVICE_BASE_URL:-}
+      ContextService__BaseUrl: http://context-service:8080
       # БД изолирована на сервис: у каждого своя база Postgres
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${COMPANY_SERVICE_DB:-company-service};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
     depends_on:
       postgres:
         condition: service_healthy
       mongo:
+        condition: service_started
+    restart: unless-stopped
+
+  # Idempotent also on an existing postgres-data volume; never removes data.
+  service-databases:
+    image: postgres:17-alpine
+    entrypoint: ["bash", "/init/init-databases.sh"]
+    environment:
+      PGHOST: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      USER_SERVICE_DB: ${USER_SERVICE_DB:-user-service}
+      COMPANY_SERVICE_DB: ${COMPANY_SERVICE_DB:-company-service}
+      CONTEXT_SERVICE_DB: ${CONTEXT_SERVICE_DB:-context-service}
+      INSIGHT_SERVICE_DB: ${INSIGHT_SERVICE_DB:-insight-service}
+    volumes:
+      - ./postgres-init:/init:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  context-service:
+    build:
+      context: ../ContextService
+      dockerfile: Api/Dockerfile
+      args:
+        GITHUB_USERNAME: ${GITHUB_USERNAME:-AlfaHackathon}
+      secrets:
+        - github_token
+    image: alfahackathon/context-service:latest
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${CONTEXT_SERVICE_DB:-context-service};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+      Internal__Secret: ${INTERNAL_SECRET:?Set INTERNAL_SECRET}
+      # .NET clients append their own route prefixes; these are host roots.
+      CompanyService__BaseUrl: http://company-service:8080
+      Qdrant__BaseUrl: http://qdrant:6333
+      Qdrant__Collection: alfa_context_e5_v1
+      Qdrant__WorkerEnabled: "true"
+      Embeddings__BaseUrl: http://127.0.0.1:5183/v1
+      Embeddings__Model: multilingual-e5-small
+      Embeddings__Dimensions: "384"
+      Embeddings__QueryPrefix: "query: "
+      Embeddings__PassagePrefix: "passage: "
+      Reranker__BaseUrl: http://127.0.0.1:5183/v1
+      Reranker__Model: mmarco-reranker
+    expose:
+      - "8080"
+    depends_on:
+      service-databases:
+        condition: service_completed_successfully
+      qdrant:
+        condition: service_healthy
+    restart: unless-stopped
+
+  context-inference:
+    build:
+      context: ../ContextService/inference
+    image: alfahackathon/context-inference:latest
+    # The existing server binds 127.0.0.1. No host network or published port.
+    network_mode: service:context-service
+    volumes:
+      - type: bind
+        source: ${CONTEXT_MODEL_DIRECTORY:?Set CONTEXT_MODEL_DIRECTORY to existing ONNX models}
+        target: /models
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      context-service:
+        condition: service_healthy
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.15.5
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -ec
+        - 'exec 3<>/dev/tcp/127.0.0.1/6333; printf "GET /readyz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3; IFS= read -r status <&3; [[ "$$status" == *" 200 "* ]]'
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    restart: unless-stopped
+
+  insight-service:
+    build:
+      context: ../InsightService
+      dockerfile: Api/Dockerfile
+      args:
+        GITHUB_USERNAME: ${GITHUB_USERNAME:-AlfaHackathon}
+      secrets:
+        - github_token
+    image: alfahackathon/insight-service:latest
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${INSIGHT_SERVICE_DB:-insight-service};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+      Internal__Secret: ${INTERNAL_SECRET:?Set INTERNAL_SECRET}
+      CompanyService__BaseUrl: http://company-service:8080
+      ContextService__BaseUrl: http://context-service:8080
+    expose:
+      - "8080"
+    depends_on:
+      service-databases:
+        condition: service_completed_successfully
+      context-service:
+        condition: service_healthy
+      company-service:
         condition: service_started
     restart: unless-stopped
 
@@ -228,3 +369,4 @@ volumes:
   postgres-data:
   mongo-data:
   kafka-data:
+  qdrant-data:
