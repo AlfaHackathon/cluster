@@ -3,7 +3,10 @@
 Docker-состав всего кластера AlfaHackathon:
 
 ```
-клиент -> nginx (:80) -> auth-gateway (:8080) -> auth-service (:8082) -> user-service (:8081) -> postgres (:5433)
+клиент -> nginx (:80) -> auth-gateway (:8080)
+                         ├─ auth-service (:8082)
+                         ├─ user-service (:8081) -> postgres (:5433)
+                         └─ agent-service (:3000, внутренняя сеть) -> agent-postgres (внутренняя сеть)
 ```
 
 | Сервис | Порт наружу | Swagger |
@@ -13,22 +16,155 @@ Docker-состав всего кластера AlfaHackathon:
 | auth-service | 8082 | `/auth-service/swagger` (через gateway) |
 | user-service | 8081 | `/user-service/swagger` (через gateway) |
 | postgres | 5433 | нет (5432 занят на хосте) |
+| agent-service | нет | нет; HTTP API `/agent-service/...` через nginx |
+| agent-postgres | нет | нет |
 
 ## Запуск
 
 ```bash
-cp .env.example .env   # вписать GITHUB_TOKEN (read:packages) - нужен для restore пакетов AlfaHackaton.*
-docker compose up -d --build
+cp .env.example .env   # заполнить GITHUB_TOKEN, AGENT_POSTGRES_PASSWORD и INTERNAL_SECRET
+cp ../AgentService/.env.example ../AgentService/.env   # настройки LLM задаются здесь
+# GitHub Packages токен для AuthGateway сохраните в игнорируемом .github-token.
+docker compose -f docker-compose-dev.yaml up -d --build
 ```
+
+Репозитории `AuthGateway`, `AuthService`, `UserService`, `CompanyService`, `AgentService`,
+`WebNewsParserService`, `ContextService`, `InsightService` должны
+лежать рядом с `cluster`: compose собирает их из соседних каталогов.
+Изменения сначала направляются в `dev`, затем в `master`. Для production используйте `docker-compose-prod.yaml`.
+
+AgentService запускает миграции при старте и ждёт готовности собственной БД.
+Её данные хранятся в отдельном volume `agent-postgres-data`. Порт AgentService
+не публикуется на хост: клиент обращается через Gateway, который выставляет identity.
 
 ## Переменные (.env)
 
 - `GITHUB_TOKEN` — PAT для NuGet GitHub Packages;
+- `GITHUB_USERNAME` — GitHub login владельца PAT для сборки AuthGateway;
+- `CONTEXT_MODEL_DIRECTORY` — существующий каталог ONNX-моделей для локального CPU inference (см. ниже);
 - `JWT_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE` — настройки токенов (одинаковы у гейтвея и auth-service);
-- `SERVICES_ADDRESS`, `AUTH_SERVICE_ADDRESS` — downstream гейтвея;
+- `SERVICES_ADDRESS`, `AUTH_SERVICE_ADDRESS`, `AGENT_SERVICE_ADDRESS` — downstream гейтвея;
 - `POSTGRES_DB/USER/PASSWORD`;
 - `INTERNAL_SECRET` — секрет внутренних вызовов user-service <-> auth-service;
 - `SWAGGER_ENABLED` — включить/выключить свагер в сервисах.
+- `AGENT_POSTGRES_PASSWORD` — отдельный URL-safe пароль БД AgentService (латинские буквы/цифры/`-`/`_`);
+- `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` в `AgentService/.env` — endpoint, ключ и модель AgentService;
+- `LLM_CONTEXT_WINDOW`, `LLM_MAX_TOKENS`, `LLM_REASONING` — необязательные настройки модели.
+
+Новостной AgentService обращается к CompanyService через `COMPANY_SERVICE_URL` с префиксом
+`/company-service`. CompanyService хранит версии профилей, групп и grants; InsightService
+выполняет расчёты и проверку канонических результатов; ContextService хранит и ищет материалы.
+Для вызовов CompanyService из ContextService и InsightService задайте `CompanyService__BaseUrl`
+как корень host. Compose задаёт эти адреса и общий `INTERNAL_SECRET` автоматически.
+AgentService получает URL с префиксами `/company-service`, `/context-service`, `/insight-service`
+и `/news-parser-service`, включает Kafka consumer для `news-parser.news` на `kafka:9092`.
+
+## ContextService и InsightService
+
+Оба compose-файла собирают .NET 10 API из соседних репозиториев (`Api/Dockerfile`).
+Для NuGet restore используется только существующий BuildKit secret `.github-token`;
+он не передаётся аргументом сборки. API выполняют миграции перед открытием `/health`.
+
+`context-service` и `insight-service` используют отдельные PostgreSQL-базы в существующем
+`postgres-data`; имена задают `CONTEXT_SERVICE_DB` и `INSIGHT_SERVICE_DB`. Одноразовый
+`service-databases` создаёт только отсутствующие базы, включая случай уже заполненного
+volume. Он не удаляет и не очищает данные. Скрипт также используется при первом старте PostgreSQL.
+Qdrant хранит индекс в отдельном `qdrant-data`; Mongo и Agent сохраняют прежние volumes.
+Kafka явно использует `/var/lib/kafka/data` в прежнем `kafka-data`.
+
+**Обновление существующего стенда:** до пересоздания Kafka проверьте фактический `log.dirs`
+и содержимое `kafka-data`. Раньше compose монтировал volume, не задавая `KAFKA_LOG_DIRS`;
+стандартный образ пишет журнал и metadata в `/tmp/kafka-logs` внутри контейнера.
+Если данные находятся там, сохраните и перенесите их в volume при остановленном брокере,
+включая KRaft metadata, до применения compose. Нельзя удалять старый контейнер или volume
+до подтверждения сохранности данных. Миграцию существующего брокера координирует оператор;
+команды ниже подходят для первого запуска или уже подготовленного обновления.
+
+До запуска задайте `CONTEXT_MODEL_DIRECTORY` абсолютным путём к существующим весам:
+
+```text
+<CONTEXT_MODEL_DIRECTORY>/
+  e5_small/model.onnx
+  e5_small/tokenizer.json
+  mmarco_reranker/model.onnx
+  mmarco_reranker/tokenizer.json
+```
+
+Укажите совместимые ONNX-экспорты multilingual-e5-small (384 измерения) и mmarco-reranker.
+Каталог должен читаться UID 1654; он монтируется read-only, отсутствующий путь не создаётся.
+Compose не скачивает веса. Укажите все дополнительные файлы ONNX external data рядом с моделью.
+`context-inference` разделяет сетевое пространство Context API: исходный Python server
+слушает только `127.0.0.1:5183`, поэтому порт не публикуется и не требует изменения сервера.
+Context использует `/v1`, E5-префиксы `query: ` / `passage: ` и фоновый Qdrant sync.
+Readiness inference выполняет реальный embedding и rerank; `/health` Python-сервера
+сам по себе не подтверждает наличие или совместимость весов.
+
+Agent ждёт готовности Kafka, обоих API и inference. Новые внутренние сервисы и Qdrant
+не публикуют порты на хост. API health подтверждает старт после миграций;
+сквозной результат news → company insight нужно проверять отдельно через HTTP и Kafka.
+
+```bash
+docker compose -f docker-compose-prod.yaml config --quiet
+docker compose -f docker-compose-prod.yaml build context-service insight-service context-inference
+docker compose -f docker-compose-prod.yaml up -d --wait
+```
+
+Для production нужны существующие `.github-token`, `INTERNAL_SECRET`, JWT-настройки,
+`POSTGRES_DB/USER/PASSWORD`, `AGENT_POSTGRES_PASSWORD`, доступные ONNX-веса и
+`LLM_BASE_URL/LLM_API_KEY/LLM_MODEL` в `AgentService/.env`. Значения секретов не выводите
+через `docker compose config` без `--quiet`.
+
+## Чаты и SSE
+
+Все запросы сайта идут на тот же origin, например `/agent-service/chats` и
+`/agent-service/agents/assistant/{chatId}`. Передавайте `Authorization: Bearer ...`
+во всех запросах, включая SSE и повторные подключения. Gateway проверяет JWT,
+заменяет переданные клиентом `X-User-Id`/`X-User-Role` и проксирует запрос в AgentService.
+
+В nginx для `/agent-service/` отключены буферизация, кеш и gzip; URI, query string
+и внешний Host сохраняются. YARP также отключает буферизацию и допускает час
+без активности. Dev nginx обслуживает HTTP на порту 80; production — HTTPS на `api.cheremha.ru`.
+
+Пример подключения сайта с `@flue/sdk@2.3.0` после создания чата:
+
+```ts
+const client = createFlueClient({
+  url: `/agent-service/agents/assistant/${chat.id}`,
+  headers: () => ({ Authorization: `Bearer ${getAccessToken()}` }),
+});
+const admission = await client.send({
+  message: { kind: 'user', body: text },
+  idempotencyKey: crypto.randomUUID(),
+});
+const observation = client.observe({ live: 'sse' });
+const unsubscribe = observation.subscribe(() => {
+  renderChat(observation.getSnapshot());
+});
+// При закрытии экрана: unsubscribe(); observation.close();
+// Остановить ответ: await client.abort();
+```
+
+Подписка запускает чтение истории и SSE. `send()` принимает сообщение, `read(admission)`
+ожидает готовый ответ через long polling; для обновляемого интерфейса используется
+`observe({ live: 'sse' })`. У нового чата сначала отправьте первое сообщение:
+до первого admission Flue ещё не создал историю разговора.
+
+## Сквозная проверка
+
+Нужны работающие nginx, AuthGateway и AgentService с PostgreSQL и моделью.
+Тест использует SDK из соседнего `AgentService/node_modules` (`npm.cmd ci` в нём).
+Запускайте только на тестовом стенде: он создаёт чаты и делает один запрос к модели.
+
+```powershell
+$env:AGENT_PROXY_URL = 'http://localhost/agent-service'
+$env:JWT_SECRET = '<тот же ключ, что у Gateway>'
+node --test tests/agent-sse.mjs
+docker compose -f docker-compose-dev.yaml --env-file .env config --quiet
+```
+
+При нестандартных issuer/audience задайте также `JWT_ISSUER` и `JWT_AUDIENCE`.
+Проверяются identity, чужие чаты, query string, публичный streamUrl, SSE,
+идемпотентность отправки, повторное чтение, история и abort.
 
 ## Тестовые пользователи (сид)
 
