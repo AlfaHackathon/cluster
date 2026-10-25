@@ -1,6 +1,8 @@
 # PROD-кластер проекта AlfaHackathon.
-# Наружу торчит только nginx:80/443 — все сервисы ходят друг к другу по
-# внутренней сети compose. Для локальной разработки используйте docker-compose-dev.yaml.
+# Наружу торчат только nginx:80/443 — все сервисы ходят друг к другу по
+# внутренней сети compose. ИСКЛЮЧЕНИЕ: kafka-ui (8090) временно открыт наружу
+# для ручной проверки — после проверки уберите ports у kafka-ui.
+# Для локальной разработки используйте docker-compose-dev.yaml.
 # Перед запуском создайте файл .env рядом с compose-файлом (см. .env.example).
 
 services:
@@ -185,6 +187,23 @@ services:
       timeout: 10s
       start_period: 30s
       retries: 10
+    restart: unless-stopped
+
+  # Веб-морда Kafka (kafbat ui, форк provectuslabs): топики, сообщения, консьюмер-группы.
+  # ВРЕМЕННО открыт наружу для ручной проверки; после проверки уберите ports.
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:v1.5.0
+    container_name: kafka-ui
+    environment:
+      KAFKA_CLUSTERS_0_NAME: alfa-prod
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    ports:
+      # ВРЕМЕННО: голый HTTP-порт в обход nginx (без TLS и авторизации).
+      # Порт меняется через KAFKA_UI_PORT в .env.
+      - "${KAFKA_UI_PORT:-8090}:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
     restart: unless-stopped
 
   web-news-parser-service:

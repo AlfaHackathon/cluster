@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/bin/sh
 # Create missing service databases on fresh AND existing volumes. Never drop data.
-set -euo pipefail
+set -eu
 
 for db in "${USER_SERVICE_DB:-user-service}" "${COMPANY_SERVICE_DB:-company-service}" \
           "${CONTEXT_SERVICE_DB:-context-service}" "${INSIGHT_SERVICE_DB:-insight-service}"; do
