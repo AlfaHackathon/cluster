@@ -73,7 +73,7 @@ services:
     depends_on:
       agent-postgres:
         condition: service_healthy
-      context-inference:
+      context-service:
         condition: service_healthy
       insight-service:
         condition: service_healthy
@@ -306,37 +306,22 @@ services:
       Qdrant__BaseUrl: http://qdrant:6333
       Qdrant__Collection: alfa_context_e5_v1
       Qdrant__WorkerEnabled: "true"
-      Embeddings__BaseUrl: http://127.0.0.1:5183/v1
-      Embeddings__Model: multilingual-e5-small
+      # Remote embedding/rerank API; no model weights are mounted on this host.
+      Embeddings__BaseUrl: ${CONTEXT_EMBEDDINGS_BASE_URL:-https://inference.cheremha.ru/v1}
+      Embeddings__Model: ${CONTEXT_EMBEDDINGS_MODEL:-multilingual-e5-small}
+      Embeddings__ApiKey: ${CONTEXT_EMBEDDINGS_API_KEY:-}
       Embeddings__Dimensions: "384"
       Embeddings__QueryPrefix: "query: "
       Embeddings__PassagePrefix: "passage: "
-      Reranker__BaseUrl: http://127.0.0.1:5183/v1
-      Reranker__Model: mmarco-reranker
+      Reranker__BaseUrl: ${CONTEXT_RERANKER_BASE_URL:-https://inference.cheremha.ru/v1}
+      Reranker__Model: ${CONTEXT_RERANKER_MODEL:-mmarco-reranker}
+      Reranker__ApiKey: ${CONTEXT_RERANKER_API_KEY:-}
     expose:
       - "8080"
     depends_on:
       service-databases:
         condition: service_completed_successfully
       qdrant:
-        condition: service_healthy
-    restart: unless-stopped
-
-  context-inference:
-    build:
-      context: ../ContextService/inference
-    image: alfahackathon/context-inference:latest
-    # The existing server binds 127.0.0.1. No host network or published port.
-    network_mode: service:context-service
-    volumes:
-      - type: bind
-        source: ${CONTEXT_MODEL_DIRECTORY:?Set CONTEXT_MODEL_DIRECTORY to existing ONNX models}
-        target: /models
-        read_only: true
-        bind:
-          create_host_path: false
-    depends_on:
-      context-service:
         condition: service_healthy
     restart: unless-stopped
 
