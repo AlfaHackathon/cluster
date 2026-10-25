@@ -16,6 +16,8 @@ Docker-состав всего кластера AlfaHackathon:
 | auth-service | 8082 | `/auth-service/swagger` (через gateway) |
 | user-service | 8081 | `/user-service/swagger` (через gateway) |
 | postgres | 5433 | нет (5432 занят на хосте) |
+| kafka | 9094 (только dev) | нет; EXTERNAL-listener для клиентов с хоста |
+| kafka-ui | 8090 | нет; веб-морда `http://localhost:8090` |
 | agent-service | нет | нет; HTTP API `/agent-service/...` через nginx |
 | agent-postgres | нет | нет |
 
@@ -213,6 +215,12 @@ gateway устанавливает X-User-Id/X-User-Role, AgentService пров�
 https://api.cheremha.ru/agent-service. Production compose использует
 `nginx/nginx.prod.conf`, публикует 80/443 и перенаправляет HTTP на HTTPS (308).
 Dev compose продолжает использовать HTTP-конфигурацию `nginx/nginx.conf`.
+
+**Временное исключение:** `kafka-ui` в prod опубликован наружу на
+`${KAFKA_UI_PORT:-8090}` (голый HTTP, без TLS и авторизации) для ручной
+проверки топиков и консьюмер-групп. Когда проверка закончена, уберите секцию
+`ports` у `kafka-ui` в `docker-compose-prod.yaml` и откройте порт в firewall,
+если он был разрешён.
 
 Сертификат Let's Encrypt и ACME webroot находятся в игнорируемых каталогах
 `letsencrypt/` и `acme-webroot/`. Приватные ключи не коммитятся.

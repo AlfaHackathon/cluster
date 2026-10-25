@@ -198,6 +198,21 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Веб-морда Kafka (kafbat ui, форк provectuslabs): топики, сообщения, консьюмер-группы
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:v1.5.0
+    container_name: kafka-ui
+    environment:
+      KAFKA_CLUSTERS_0_NAME: alfa-dev
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    ports:
+      # наружу — для локальной разработки без кластера
+      - "8090:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
   # Парсер новостей (TASS/RBC/Alfa): Monad.getMinutes-время -> помощь newsparserweb-...- worker
   web-news-parser-service:
     build:
