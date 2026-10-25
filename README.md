@@ -43,7 +43,9 @@ AgentService запускает миграции при старте и ждёт
 
 - `GITHUB_TOKEN` — PAT для NuGet GitHub Packages;
 - `GITHUB_USERNAME` — GitHub login владельца PAT для сборки AuthGateway;
-- `CONTEXT_MODEL_DIRECTORY` — существующий каталог ONNX-моделей для локального CPU inference (см. ниже);
+- `CONTEXT_EMBEDDINGS_BASE_URL`, `CONTEXT_RERANKER_BASE_URL` — корни удалённого API с `/v1`, по умолчанию `https://inference.cheremha.ru/v1`;
+- `CONTEXT_EMBEDDINGS_MODEL`, `CONTEXT_RERANKER_MODEL` — реальные served model IDs существующего inference;
+- `CONTEXT_EMBEDDINGS_API_KEY`, `CONTEXT_RERANKER_API_KEY` — независимые необязательные Bearer-ключи соответствующих API;
 - `JWT_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE` — настройки токенов (одинаковы у гейтвея и auth-service);
 - `SERVICES_ADDRESS`, `AUTH_SERVICE_ADDRESS`, `AGENT_SERVICE_ADDRESS` — downstream гейтвея;
 - `POSTGRES_DB/USER/PASSWORD`;
@@ -82,39 +84,54 @@ Kafka явно использует `/var/lib/kafka/data` в прежнем `kaf
 до подтверждения сохранности данных. Миграцию существующего брокера координирует оператор;
 команды ниже подходят для первого запуска или уже подготовленного обновления.
 
-До запуска задайте `CONTEXT_MODEL_DIRECTORY` абсолютным путём к существующим весам:
+Embedding и rerank работают на существующем ПК и доступны ContextService через
+`https://inference.cheremha.ru/v1`. Оба compose-файла используют удалённый HTTP API;
+локальный inference-контейнер и каталог ONNX-весов на сервере не требуются.
+Настройки ПК, tunnel и самого inference этот compose не меняет.
 
-```text
-<CONTEXT_MODEL_DIRECTORY>/
-  e5_small/model.onnx
-  e5_small/tokenizer.json
-  mmarco_reranker/model.onnx
-  mmarco_reranker/tokenizer.json
-```
+При обновлении сохраните действующие model IDs и при необходимости ключи из
+существующей конфигурации в соответствующих `CONTEXT_*` параметрах cluster `.env`.
+Имена по умолчанию `multilingual-e5-small` и `mmarco-reranker` не подтверждают наличие
+таких alias у удалённого провайдера: Context передаёт их без подмены. URL должен
+включать `/v1`, но не `/embeddings` или `/rerank`. Ключи не коммитьте; пустое
+значение не добавляет Authorization. Для прежнего E5-контракта сохранены размерность
+384 и префиксы `query: ` / `passage: `.
 
-Укажите совместимые ONNX-экспорты multilingual-e5-small (384 измерения) и mmarco-reranker.
-Каталог должен читаться UID 1654; он монтируется read-only, отсутствующий путь не создаётся.
-Compose не скачивает веса. Укажите все дополнительные файлы ONNX external data рядом с моделью.
-`context-inference` разделяет сетевое пространство Context API: исходный Python server
-слушает только `127.0.0.1:5183`, поэтому порт не публикуется и не требует изменения сервера.
-Context использует `/v1`, E5-префиксы `query: ` / `passage: ` и фоновый Qdrant sync.
-Readiness inference выполняет реальный embedding и rerank; `/health` Python-сервера
-сам по себе не подтверждает наличие или совместимость весов.
+Agent ждёт готовности Kafka, собственной БД, ContextService и InsightService.
+API health подтверждает старт после миграций, но не доступность удалённых моделей.
+Недоступный inference по-прежнему приводит к ошибке соответствующего поиска;
+пустой успешный результат вместо ошибки не подразумевается. Вызовы embedding/rerank
+и сквозной результат news → company insight проверяются отдельно оператором.
 
-Agent ждёт готовности Kafka, обоих API и inference. Новые внутренние сервисы и Qdrant
-не публикуют порты на хост. API health подтверждает старт после миграций;
-сквозной результат news → company insight нужно проверять отдельно через HTTP и Kafka.
+Проверка compose без запуска контейнеров (она не обращается к inference):
 
 ```bash
 docker compose -f docker-compose-prod.yaml config --quiet
-docker compose -f docker-compose-prod.yaml build context-service insight-service context-inference
+```
+
+Обычная сборка/запуск выполняются оператором в согласованное окно:
+
+```bash
+docker compose -f docker-compose-prod.yaml build context-service insight-service
 docker compose -f docker-compose-prod.yaml up -d --wait
 ```
 
+Удаление сервиса из YAML само по себе не удаляет уже существующий контейнер
+`context-inference`: при обновлении оператор проверяет и останавливает только этот
+прежний sidecar. Не применяйте массовое удаление orphan-контейнеров или volumes.
+Историческую переменную каталога моделей из реального `.env` можно убрать отдельно;
+compose её больше не использует.
+
 Для production нужны существующие `.github-token`, `INTERNAL_SECRET`, JWT-настройки,
-`POSTGRES_DB/USER/PASSWORD`, `AGENT_POSTGRES_PASSWORD`, доступные ONNX-веса и
+`POSTGRES_DB/USER/PASSWORD`, `AGENT_POSTGRES_PASSWORD`, доступный удалённый inference и
 `LLM_BASE_URL/LLM_API_KEY/LLM_MODEL` в `AgentService/.env`. Значения секретов не выводите
 через `docker compose config` без `--quiet`.
+
+Локальная статическая регрессия конфигурации, без контейнеров, БД и model calls:
+
+```bash
+node --test tests/compose-config.mjs
+```
 
 ## Чаты и SSE
 
