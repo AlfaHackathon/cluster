@@ -1,0 +1,79 @@
+# Overlay for docker-compose-prod.yaml. SOURCE ONLY: apply is deliberately blocked.
+# Normal cluster restarts do not select either explicit profile.
+services:
+  csv-validate:
+    profiles: [csv-validate]
+    build: ./importer
+    image: alfahackathon/csv-preflight:source-v1
+    command: [--input, /input, --manifest, /input/manifest.json, --mode, dry-run]
+    volumes:
+      - type: bind
+        source: ${CSV_INPUT_DIR:?Set CSV_INPUT_DIR to an extracted immutable CSV directory}
+        target: /input
+        read_only: true
+        bind:
+          create_host_path: false
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 768m
+    restart: "no"
+
+  csv-owner-schema:
+    profiles: [csv-import]
+    image: postgres:17-alpine
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        attempts=0
+        until psql --no-psqlrc -v ON_ERROR_STOP=1 -d "$$COMPANY_DB" -c \
+          "SELECT 1 / ((to_regclass('public.company_bank_profiles') IS NOT NULL AND to_regclass('public.company_payment_rows') IS NOT NULL AND to_regclass('public.company_payment_source_versions') IS NOT NULL)::int);" \
+          && psql --no-psqlrc -v ON_ERROR_STOP=1 -d "$$USER_DB" -c \
+          "SELECT 1 / ((to_regclass('public.user_source_accounts') IS NOT NULL AND to_regclass('public.user_source_account_revisions') IS NOT NULL)::int);"
+        do
+          attempts=$$((attempts + 1))
+          if [ "$$attempts" -ge 60 ]; then exit 1; fi
+          sleep 2
+        done
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      PGOPTIONS: -c default_transaction_read_only=on
+      PGCONNECT_TIMEOUT: "5"
+      COMPANY_DB: ${COMPANY_SERVICE_DB:-company-service}
+      USER_DB: ${USER_SERVICE_DB:-user-service}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      company-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: "no"
+
+  csv-import:
+    profiles: [csv-import]
+    build: ./importer
+    image: alfahackathon/csv-preflight:source-v1
+    command: [--input, /input, --manifest, /input/manifest.json, --mode, apply]
+    volumes:
+      - type: bind
+        source: ${CSV_INPUT_DIR:?Set CSV_INPUT_DIR}
+        target: /input
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      csv-owner-schema:
+        condition: service_completed_successfully
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 768m
+    restart: "no"
