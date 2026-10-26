@@ -1,6 +1,18 @@
-# Overlay for docker-compose-prod.yaml. SOURCE ONLY: apply is deliberately blocked.
+# Overlay for docker-compose-prod.yaml. Requires all reviewed owner candidates deployed.
 # Normal cluster restarts do not select either explicit profile.
 services:
+  company-service:
+    environment:
+      CsvImport__Enabled: ${CSV_IMPORT_ENABLED:-false}
+      CsvImport__UserServiceBaseUrl: http://user-service:8080
+  user-service:
+    environment:
+      CsvImport__Enabled: ${CSV_IMPORT_ENABLED:-false}
+      CsvImport__CompanyServiceBaseUrl: http://company-service:8080
+  context-service:
+    environment:
+      Qdrant__WorkerEnabled: ${CSV_CONTEXT_WORKER_ENABLED:-false}
+      CsvImport__ProjectionEnabled: ${CSV_PROJECTION_ENABLED:-false}
   csv-validate:
     profiles: [csv-validate]
     build: ./importer
@@ -28,9 +40,9 @@ services:
       - |
         attempts=0
         until psql --no-psqlrc -v ON_ERROR_STOP=1 -d "$$COMPANY_DB" -c \
-          "SELECT 1 / ((to_regclass('public.company_bank_profiles') IS NOT NULL AND to_regclass('public.company_payment_rows') IS NOT NULL AND to_regclass('public.company_payment_source_versions') IS NOT NULL)::int);" \
+          "SELECT 1 / ((to_regclass('public.csv_import_batches') IS NOT NULL AND to_regclass('public.company_bank_profiles') IS NOT NULL AND to_regclass('public.company_payment_rows') IS NOT NULL AND to_regclass('public.company_payment_source_versions') IS NOT NULL)::int);" \
           && psql --no-psqlrc -v ON_ERROR_STOP=1 -d "$$USER_DB" -c \
-          "SELECT 1 / ((to_regclass('public.user_source_accounts') IS NOT NULL AND to_regclass('public.user_source_account_revisions') IS NOT NULL)::int);"
+          "SELECT 1 / ((to_regclass('public.csv_import_batches') IS NOT NULL AND to_regclass('public.user_source_accounts') IS NOT NULL AND to_regclass('public.user_source_account_revisions') IS NOT NULL)::int);"
         do
           attempts=$$((attempts + 1))
           if [ "$$attempts" -ge 60 ]; then exit 1; fi
@@ -61,6 +73,10 @@ services:
     build: ./importer
     image: alfahackathon/csv-preflight:source-v1
     command: [--input, /input, --manifest, /input/manifest.json, --mode, apply]
+    environment:
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?Set INTERNAL_SECRET}
+      COMPANY_IMPORT_URL: http://company-service:8080/company-service/internal/csv-import
+      USER_IMPORT_URL: http://user-service:8080/user-service/internal/csv-import
     volumes:
       - type: bind
         source: ${CSV_INPUT_DIR:?Set CSV_INPUT_DIR}
@@ -71,7 +87,6 @@ services:
     depends_on:
       csv-owner-schema:
         condition: service_completed_successfully
-    network_mode: none
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
