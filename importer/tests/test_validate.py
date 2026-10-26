@@ -5,9 +5,11 @@ import io
 import json
 import tempfile
 import unittest
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import validate as subject
 
 C1 = "11111111-1111-4111-8111-111111111111"
@@ -15,7 +17,7 @@ C2 = "22222222-2222-4222-8222-222222222222"
 P = "33333333-3333-4333-8333-333333333333"
 A = "44444444-4444-4444-8444-444444444444"
 G = "55555555-5555-4555-8555-555555555555"
-COMPANY = "SYNTHETIC_U,ORG_TYPE,OKFS_NAME,COMPANY_AGE_YEARS_GRADATION,ECO_MARK_LABEL,MAINOKVED_CODE,MAINOKVED_NAME,NEGATIVEMARK,AMOUNT_WORKERS_FNS_GRADATION,AMOUNT_WORKERS_SPARK_GRADATION,CL_TYPE,CL_PRODUCT_RKO_MARK,CL_PRODUCT_GAR_MARK,CL_PRODUCT_LOA_MARK,CL_PRODUCT_LEA_MARK,CL_PRODUCT_DEP_MARK,CL_PRODUCT_ZPP_MARK,FTS_FLAG,FTS_COUNTRY_NAME,FACTORING_MARK,REVENUE_COMPANY,GROUP_ID,CITY,REGION".split(",")
+COMPANY = "COMPANY_ID,ORG_TYPE,OKFS_NAME,COMPANY_AGE_YEARS_GRADATION,ECO_MARK_LABEL,MAINOKVED_CODE,MAINOKVED_NAME,NEGATIVEMARK,AMOUNT_WORKERS_FNS_GRADATION,AMOUNT_WORKERS_SPARK_GRADATION,CL_TYPE,CL_PRODUCT_RKO_MARK,CL_PRODUCT_GAR_MARK,CL_PRODUCT_LOA_MARK,CL_PRODUCT_LEA_MARK,CL_PRODUCT_DEP_MARK,CL_PRODUCT_ZPP_MARK,FTS_FLAG,FTS_COUNTRY_NAME,FACTORING_MARK,REVENUE_COMPANY,GROUP_ID,CITY,REGION,PROFILE_INCOMPLETE".split(",")
 
 
 class PreflightTests(unittest.TestCase):
@@ -24,19 +26,21 @@ class PreflightTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.data = {
-            "companies": [[C1] + [""] * 19 + ["  ", G, "", ""],
-                          [C2] + [""] * 19 + ["-0001.2300", "", "", ""]],
+            "groups": [[G]],
+            "companies": [[C1] + [""] * 19 + ["  ", G, "", "", "1"],
+                          [C2] + [""] * 19 + ["-0001.2300", "", "", "", "0"]],
             "persons": [[P]], "accounts": [[A, P, C1]],
             "links": [[P, "  raw;city\n", "", C1]],
             "payments": [[C2, C1, "+000.10000000000000000000000000001", "0001"],
                          [C2, C1, "-0.1", "2"], [C1, C1, "5", "0"]],
         }
-        headers = {"companies": COMPANY, "persons": ["person_uuid"],
+        headers = {"groups": ["GROUP_ID"], "companies": COMPANY, "persons": ["person_uuid"],
                    "accounts": ["account_uuid", "person_uuid", "company_uuid"],
                    "links": ["SYNTHETIC_F", "CITY_NAME", "RC_NAME", "SYNTHETIC_U"],
                    "payments": ["BENEFICIARY", "PAYER", "PAY_AMT", "PAY_CNT"]}
         mappings = {
-            "companies": dict(company_id="SYNTHETIC_U", group_id="GROUP_ID", revenue="REVENUE_COMPANY"),
+            "groups": dict(group_id="GROUP_ID"),
+            "companies": dict(company_id="COMPANY_ID", group_id="GROUP_ID", revenue="REVENUE_COMPANY"),
             "persons": dict(person_id="person_uuid"),
             "accounts": dict(account_id="account_uuid", person_id="person_uuid", company_id="company_uuid"),
             "links": dict(person_id="SYNTHETIC_F", company_id="SYNTHETIC_U", city_name="CITY_NAME", rc_name="RC_NAME"),
@@ -94,7 +98,7 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(stats["skipped"], 0)
         self.assertEqual(stats["conflicts"], 0)
         self.assertEqual(stats["persisted"], 0)
-        self.assertEqual(stats["incomplete"], dict(companies=2, persons=0, accounts=0, links=1, payments=0))
+        self.assertEqual(stats["incomplete"], dict(groups=0, companies=2, persons=0, accounts=0, links=1, payments=0))
         self.assertEqual(report["rows"]["companies"], 2)
 
     def test_error_statistics_are_explicitly_partial(self):
