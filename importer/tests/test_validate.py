@@ -88,6 +88,22 @@ class PreflightTests(unittest.TestCase):
         self.manifest["version"] = "fixture-v2"
         self.assertNotEqual(first, self.check()["batch_id"])
 
+    def test_explicit_statistics_do_not_skip_incomplete_rows(self):
+        report = self.check()
+        stats = report["statistics"]
+        self.assertEqual(stats["skipped"], 0)
+        self.assertEqual(stats["conflicts"], 0)
+        self.assertEqual(stats["persisted"], 0)
+        self.assertEqual(stats["incomplete"], dict(companies=2, persons=0, accounts=0, links=1, payments=0))
+        self.assertEqual(report["rows"]["companies"], 2)
+
+    def test_error_statistics_are_explicitly_partial(self):
+        report = subject.failure_report(subject.Invalid("duplicate_account_or_pair", "accounts", 2))
+        self.assertEqual(report["statistics"]["conflicts"], 1)
+        self.assertEqual(report["statistics"]["skipped"], 0)
+        self.assertIsNone(report["statistics"]["incomplete"])
+        self.assertEqual(report["statistics"]["scope"], "stopped_at_first_error_not_full_dataset")
+
     def test_input_hash_mismatch(self):
         (self.root / "payments.csv").write_text("sensitive-not-logged")
         self.error("source_hash_mismatch")
