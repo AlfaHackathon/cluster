@@ -12,8 +12,9 @@ from decimal import Decimal, localcontext
 from pathlib import Path
 from uuid import UUID
 
-ROLES = ("companies", "persons", "accounts", "links", "payments")
+ROLES = ("groups", "companies", "persons", "accounts", "links", "payments")
 KEYS = {
+    "groups": {"group_id"},
     "companies": {"company_id", "group_id", "revenue"},
     "persons": {"person_id"},
     "accounts": {"account_id", "person_id", "company_id"},
@@ -124,7 +125,7 @@ def load_manifest(path):
                 and all(isinstance(h, str) and h in headers for h in columns.values())
                 and len(set(columns.values())) == len(columns), "column_contract", role)
         require(type(spec["rows"]) is int and spec["rows"] >= 0, "expected_rows", role)
-    require(len(manifest["files"]["companies"]["headers"]) == 24, "company_header_count")
+    require(len(manifest["files"]["companies"]["headers"]) == 25, "company_header_count")
     require(len(manifest["files"]["payments"]["headers"]) == 4, "payment_header_count")
     expected = manifest["expected"]
     require(isinstance(expected, dict) and set(expected) == {
@@ -187,12 +188,16 @@ def validate(directory, manifest):
                        if column not in identity_columns):
                     incomplete[role] += 1
                 values = {key: raw[column] for key, column in columns.items()}
-                if role == "companies":
+                if role == "groups":
+                    group = identifier(values["group_id"], role, count)
+                    require(group not in group_ids, "duplicate_group", role, count)
+                    group_ids.add(group)
+                elif role == "companies":
                     company = identifier(values["company_id"], role, count)
                     require(company not in company_ids, "duplicate_company", role, count)
                     company_ids.add(company)
                     if values["group_id"]:
-                        group_ids.add(identifier(values["group_id"], role, count))
+                        require(identifier(values["group_id"], role, count) in group_ids, "group_foreign_key", role, count)
                     revenue = values["revenue"]
                     require(owner_whitespace(revenue) or REVENUE.fullmatch(revenue), "invalid_revenue", role, count)
                 elif role == "persons":
@@ -246,10 +251,10 @@ def validate(directory, manifest):
         "statistics": {"skipped": 0, "conflicts": 0, "persisted": 0, "incomplete": incomplete,
                        "scope": "full_dataset", "incomplete_definition":
                        "row_with_empty_or_owner_whitespace_nonidentity_cell"},
-        "apply_status": "blocked", "blockers": [
-            "company_capture_requires_context_material_before_owner_commit",
-            "group_person_link_contract_requires_verified_context_evidence",
-            "user_candidate_not_deployed",
+        "apply_status": "requires_runtime_prerequisites", "blockers": [
+            "company_csv_batch_v1_migration_and_enabled_flag_required",
+            "context_declared_source_and_projection_guards_required",
+            "user_csv_batch_v1_migration_and_enabled_flag_required",
         ],
     }
 
