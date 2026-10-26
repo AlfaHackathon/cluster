@@ -28,7 +28,8 @@ def replace(role, values, count):
         writer.writerows(values)
     spec['rows'] = count
     spec['sha256'] = validate.sha256(root / spec['path'])
-replace('companies', ([uid(i)] + [''] * 19 + ['', uid(300000+i % 18098), '', ''] for i in range(204708)), 204708)
+replace('groups', ([uid(300000+i)] for i in range(18098)), 18098)
+replace('companies', ([uid(i)] + [''] * 19 + ['', uid(300000+i % 18098), '', '', '1'] for i in range(204708)), 204708)
 replace('persons', ([uid(400000+i)] for i in range(11120)), 11120)
 replace('accounts', ([uid(500000+i), uid(400000+i % 11120), uid(i)] for i in range(12514)), 12514)
 replace('links', ([uid(400000+i % 11120), '', '', uid(i)] for i in range(12514)), 12514)
