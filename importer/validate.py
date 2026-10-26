@@ -53,6 +53,15 @@ def require(condition, code, role=None, row=None):
         raise Invalid(code, role, row)
 
 
+def failure_report(error):
+    code = error.diagnostic["code"]
+    return {"status": "failed", **error.diagnostic, "statistics": {
+        "skipped": 0, "conflicts": int(code.startswith("duplicate_")),
+        "incomplete": None, "persisted": 0,
+        "scope": "stopped_at_first_error_not_full_dataset",
+    }}
+
+
 def sha256(path):
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -159,6 +168,7 @@ def validate(directory, manifest):
     company_ids, group_ids, person_ids = set(), set(), set()
     accounts, account_ids, linked_pairs = {}, set(), set()
     counts = {}
+    incomplete = dict.fromkeys(ROLES, 0)
     pairs = Counter()
     amount, payment_count, self_rows = Decimal(0), 0, 0
     self_amount, self_count = Decimal(0), 0
@@ -169,8 +179,13 @@ def validate(directory, manifest):
         for role in ROLES:
             spec = manifest["files"][role]
             columns = spec["columns"]
+            identity_columns = {column for key, column in columns.items()
+                                if key.endswith("_id") or key in {"payer", "beneficiary"}}
             count = 0
             for count, raw in rows(directory, role, spec):
+                if any(owner_whitespace(value) for column, value in raw.items()
+                       if column not in identity_columns):
+                    incomplete[role] += 1
                 values = {key: raw[column] for key, column in columns.items()}
                 if role == "companies":
                     company = identifier(values["company_id"], role, count)
@@ -228,6 +243,9 @@ def validate(directory, manifest):
         "status": "validated", "mode": "dry-run", "batch_id": hashlib.sha256(canonical).hexdigest(),
         "source_id": manifest["source_id"], "version": manifest["version"], "rows": counts,
         "verified": actual, "self_payment_amount": str(self_amount), "self_payment_count": self_count,
+        "statistics": {"skipped": 0, "conflicts": 0, "persisted": 0, "incomplete": incomplete,
+                       "scope": "full_dataset", "incomplete_definition":
+                       "row_with_empty_or_owner_whitespace_nonidentity_cell"},
         "apply_status": "blocked", "blockers": [
             "company_capture_requires_context_material_before_owner_commit",
             "group_person_link_contract_requires_verified_context_evidence",
@@ -250,10 +268,10 @@ def main(argv=None):
         print(json.dumps(report, ensure_ascii=True, sort_keys=True))
         return 3 if args.mode == "apply" else 0
     except Invalid as error:
-        print(json.dumps({"status": "failed", **error.diagnostic}), file=sys.stderr)
+        print(json.dumps(failure_report(error)), file=sys.stderr)
         return 2
     except OSError:
-        print('{"status":"failed","code":"input_io"}', file=sys.stderr)
+        print(json.dumps(failure_report(Invalid("input_io"))), file=sys.stderr)
         return 2
 
 
