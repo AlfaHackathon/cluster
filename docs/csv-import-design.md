@@ -92,11 +92,22 @@ production record or provider call is used. Cases cover lexical precision, dupli
 pairs/self rows, account pair uniqueness, two companies per person, headers/hash/FK,
 UTF-16 geography limits, silent PII-safe errors and explicit apply refusal.
 
-Verification: 24 unit fixtures pass. Static Compose rendering with synthetic
+Verification: 26 unit fixtures pass. Static Compose rendering with synthetic
 interpolation and `--no-env-resolution --quiet` passes; no daemon/container is used.
 Two independent review axes found Unicode-policy mismatches; fixes now cover .NET
 whitespace/control predicates and UTF-16 length, plus accurate apply-mode reporting.
 Original full-import gaps remain blocked, not approved as completed functionality.
+
+Reports explicitly expose `skipped=0`, `conflicts=0`, `persisted=0` for a successful
+full preflight. `incomplete` counts rows per role with an empty or .NET-whitespace
+nonidentity cell; these rows remain counted and are never silently dropped. This
+is raw-field completeness, not inferred employment, account access readiness or an
+assertion that an optional field is required. Group absence is optional identity,
+so it does not alone increment this measure. On the first invalid row preflight
+fails nonzero: statistics explicitly say `stopped_at_first_error_not_full_dataset`,
+incomplete is unknown/null and a duplicate-identity failure reports one observed
+conflict, not a fabricated total across unscanned rows. No records are skipped to
+turn an invalid source into a successful import. Apply remains wholly blocked.
 
 A synthetic full-population run (204708 companies, 11120 persons, 12514 accounts
 and links, 1380585 distinct payment pairs) validated in 83.46 seconds with 424.7 MiB
