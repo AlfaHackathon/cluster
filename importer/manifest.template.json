@@ -1,0 +1,110 @@
+{
+  "format": 1,
+  "source_id": "CONFIRM_LOGICAL_SOURCE_ID",
+  "version": "UUID_DEMO_ESTIMATED_RUB2025_v1_20261026",
+  "files": {
+    "companies": {
+      "path": "CONFIRM_companies.csv",
+      "sha256": null,
+      "delimiter": ";",
+      "headers": [
+        "SYNTHETIC_U",
+        "ORG_TYPE",
+        "OKFS_NAME",
+        "COMPANY_AGE_YEARS_GRADATION",
+        "ECO_MARK_LABEL",
+        "MAINOKVED_CODE",
+        "MAINOKVED_NAME",
+        "NEGATIVEMARK",
+        "AMOUNT_WORKERS_FNS_GRADATION",
+        "AMOUNT_WORKERS_SPARK_GRADATION",
+        "CL_TYPE",
+        "CL_PRODUCT_RKO_MARK",
+        "CL_PRODUCT_GAR_MARK",
+        "CL_PRODUCT_LOA_MARK",
+        "CL_PRODUCT_LEA_MARK",
+        "CL_PRODUCT_DEP_MARK",
+        "CL_PRODUCT_ZPP_MARK",
+        "FTS_FLAG",
+        "FTS_COUNTRY_NAME",
+        "FACTORING_MARK",
+        "REVENUE_COMPANY",
+        "GROUP_ID",
+        "CITY",
+        "REGION"
+      ],
+      "columns": {
+        "company_id": "SYNTHETIC_U",
+        "group_id": "GROUP_ID",
+        "revenue": "REVENUE_COMPANY"
+      },
+      "rows": 204708
+    },
+    "persons": {
+      "path": "CONFIRM_persons.csv",
+      "sha256": null,
+      "delimiter": ";",
+      "headers": null,
+      "columns": {
+        "person_id": "CONFIRM_PERSON_UUID_HEADER"
+      },
+      "rows": 11120
+    },
+    "accounts": {
+      "path": "CONFIRM_accounts.csv",
+      "sha256": null,
+      "delimiter": ";",
+      "headers": null,
+      "columns": {
+        "account_id": "CONFIRM_ACCOUNT_UUID_HEADER",
+        "person_id": "CONFIRM_PERSON_UUID_HEADER",
+        "company_id": "CONFIRM_COMPANY_UUID_HEADER"
+      },
+      "rows": 12514
+    },
+    "links": {
+      "path": "CONFIRM_links.csv",
+      "sha256": null,
+      "delimiter": ";",
+      "headers": [
+        "SYNTHETIC_F",
+        "CITY_NAME",
+        "RC_NAME",
+        "SYNTHETIC_U"
+      ],
+      "columns": {
+        "person_id": "SYNTHETIC_F",
+        "company_id": "SYNTHETIC_U",
+        "city_name": "CITY_NAME",
+        "rc_name": "RC_NAME"
+      },
+      "rows": 12514
+    },
+    "payments": {
+      "path": "CONFIRM_payments.csv",
+      "sha256": null,
+      "delimiter": ";",
+      "headers": [
+        "BENEFICIARY",
+        "PAYER",
+        "PAY_AMT",
+        "PAY_CNT"
+      ],
+      "columns": {
+        "beneficiary": "BENEFICIARY",
+        "payer": "PAYER",
+        "amount": "PAY_AMT",
+        "count": "PAY_CNT"
+      },
+      "rows": 1380585
+    }
+  },
+  "expected": {
+    "groups": 18098,
+    "payment_amount": null,
+    "payment_count": null,
+    "payment_duplicate_pairs": 9,
+    "payment_extra_pair_rows": 17,
+    "payment_self_rows": null
+  }
+}
