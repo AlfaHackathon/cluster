@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.csv
+*.zip
+manifest.local.json
+report.local.json
