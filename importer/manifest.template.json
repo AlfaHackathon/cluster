@@ -1,14 +1,26 @@
 {
   "format": 1,
-  "source_id": "CONFIRM_LOGICAL_SOURCE_ID",
+  "source_id": "alfa-file-export-v1",
   "version": "UUID_DEMO_ESTIMATED_RUB2025_v1_20261026",
   "files": {
-    "companies": {
-      "path": "CONFIRM_companies.csv",
-      "sha256": null,
-      "delimiter": ";",
+    "groups": {
+      "path": "groups.csv",
+      "sha256": "cafeaf18c358fc0f0c7cff1d6c142b55fd8948900afd1c4f78fd405ead1d9b8c",
+      "rows": 18098,
       "headers": [
-        "SYNTHETIC_U",
+        "GROUP_ID"
+      ],
+      "columns": {
+        "group_id": "GROUP_ID"
+      },
+      "delimiter": ";"
+    },
+    "companies": {
+      "path": "companies.csv",
+      "sha256": "569f8b260d407c0f5d9c0dbcda641877252bd46c9d7863f8352300072e078df2",
+      "rows": 204708,
+      "headers": [
+        "COMPANY_ID",
         "ORG_TYPE",
         "OKFS_NAME",
         "COMPANY_AGE_YEARS_GRADATION",
@@ -31,59 +43,67 @@
         "REVENUE_COMPANY",
         "GROUP_ID",
         "CITY",
-        "REGION"
+        "REGION",
+        "PROFILE_INCOMPLETE"
       ],
       "columns": {
-        "company_id": "SYNTHETIC_U",
+        "company_id": "COMPANY_ID",
         "group_id": "GROUP_ID",
         "revenue": "REVENUE_COMPANY"
       },
-      "rows": 204708
+      "delimiter": ";"
     },
     "persons": {
-      "path": "CONFIRM_persons.csv",
-      "sha256": null,
-      "delimiter": ";",
-      "headers": null,
-      "columns": {
-        "person_id": "CONFIRM_PERSON_UUID_HEADER"
-      },
-      "rows": 11120
-    },
-    "accounts": {
-      "path": "CONFIRM_accounts.csv",
-      "sha256": null,
-      "delimiter": ";",
-      "headers": null,
-      "columns": {
-        "account_id": "CONFIRM_ACCOUNT_UUID_HEADER",
-        "person_id": "CONFIRM_PERSON_UUID_HEADER",
-        "company_id": "CONFIRM_COMPANY_UUID_HEADER"
-      },
-      "rows": 12514
-    },
-    "links": {
-      "path": "CONFIRM_links.csv",
-      "sha256": null,
-      "delimiter": ";",
+      "path": "persons.csv",
+      "sha256": "9efb8f6bdc1caf9eb0f97d83faf0fdf592477929f6a2acac320b6dc68cdd7324",
+      "rows": 11120,
       "headers": [
-        "SYNTHETIC_F",
-        "CITY_NAME",
-        "RC_NAME",
-        "SYNTHETIC_U"
+        "USER_ID"
       ],
       "columns": {
-        "person_id": "SYNTHETIC_F",
-        "company_id": "SYNTHETIC_U",
-        "city_name": "CITY_NAME",
-        "rc_name": "RC_NAME"
+        "person_id": "USER_ID"
       },
-      "rows": 12514
+      "delimiter": ";"
+    },
+    "accounts": {
+      "path": "account_mapping_addendum/accounts.csv",
+      "sha256": "587c1815d134c59e7d3da84710e91b02b55be58c7ca3b7567f80dae77edddd58",
+      "rows": 12514,
+      "headers": [
+        "ACCOUNT_ID",
+        "PERSON_ID",
+        "COMPANY_ID",
+        "ROLE"
+      ],
+      "columns": {
+        "account_id": "ACCOUNT_ID",
+        "person_id": "PERSON_ID",
+        "company_id": "COMPANY_ID"
+      },
+      "delimiter": ";"
+    },
+    "links": {
+      "path": "user_company_links.csv",
+      "sha256": "5c850d39eff6ef104c71a770d75857b027019e121025822e5ea46d5c6351beeb",
+      "rows": 12514,
+      "headers": [
+        "USER_ID",
+        "CITY_NAME",
+        "RC_NAME",
+        "COMPANY_ID"
+      ],
+      "columns": {
+        "person_id": "USER_ID",
+        "city_name": "CITY_NAME",
+        "rc_name": "RC_NAME",
+        "company_id": "COMPANY_ID"
+      },
+      "delimiter": ";"
     },
     "payments": {
-      "path": "CONFIRM_payments.csv",
-      "sha256": null,
-      "delimiter": ";",
+      "path": "payments.csv",
+      "sha256": "c2cee60a41ff319008c0c368c314fe639a0737131c8aafe7f3b8ca173563b783",
+      "rows": 1380585,
       "headers": [
         "BENEFICIARY",
         "PAYER",
@@ -96,15 +116,15 @@
         "amount": "PAY_AMT",
         "count": "PAY_CNT"
       },
-      "rows": 1380585
+      "delimiter": ";"
     }
   },
   "expected": {
     "groups": 18098,
-    "payment_amount": null,
-    "payment_count": null,
+    "payment_amount": "55991235586000.0",
+    "payment_count": 24515786,
     "payment_duplicate_pairs": 9,
     "payment_extra_pair_rows": 17,
-    "payment_self_rows": null
+    "payment_self_rows": 27406
   }
 }
